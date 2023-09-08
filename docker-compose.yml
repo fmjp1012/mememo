@@ -1,11 +1,24 @@
-version: '3.9'
+version: "3.9"
 
 volumes:
   php-fpm-socket:
   db-store:
 
 services:
-  app:
+  nginx:
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/nginx/Dockerfile
+    volumes:
+      - php-fpm-socket:/var/run/php-fpm
+      - ./infra/docker/development/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - 8080:80
+    depends_on:
+      - laravel
+      - nextjs
+
+  laravel:
     build:
       context: ./
       dockerfile: ./infra/docker/development/php/Dockerfile
@@ -13,18 +26,12 @@ services:
       - php-fpm-socket:/var/run/php-fpm
       - ./laravel:/work/laravel
 
-  web:
+  nextjs:
     build:
       context: ./
-      dockerfile: ./infra/docker/development/nginx/Dockerfile
+      dockerfile: ./infra/docker/development/node/Dockerfile
     volumes:
-      - php-fpm-socket:/var/run/php-fpm
-      - ./infra/docker/development/nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - ./laravel:/work/laravel
-    ports:
-      - 8080:80
-    depends_on:
-      - app
+      - ./nextjs:/work/nextjs
 
   db:
     build:
