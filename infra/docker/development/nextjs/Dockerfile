@@ -11,5 +11,3 @@ COPY ./infra/docker/development/nextjs/package.json /work/nextjs/package.json
 RUN npm install
 
 CMD ["npm", "run", "dev"]
-
-# conflict
