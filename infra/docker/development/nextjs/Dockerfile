@@ -4,4 +4,6 @@ WORKDIR /work/nextjs
 
 COPY package*.json ./
 
-CMD ["bash"]
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

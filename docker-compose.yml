@@ -29,7 +29,7 @@ services:
   nextjs:
     build:
       context: ./
-      dockerfile: ./infra/docker/development/node/Dockerfile
+      dockerfile: ./infra/docker/development/nextjs/Dockerfile
     volumes:
       - ./nextjs:/work/nextjs
 
