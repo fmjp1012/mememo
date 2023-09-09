@@ -6,6 +6,7 @@ volumes:
 
 services:
   nginx:
+    container_name: mememo-nginx
     build:
       context: ./
       dockerfile: ./infra/docker/development/nginx/Dockerfile
@@ -19,6 +20,7 @@ services:
       - nextjs
 
   laravel:
+    container_name: mememo-laravel
     build:
       context: ./
       dockerfile: ./infra/docker/development/php/Dockerfile
@@ -27,13 +29,17 @@ services:
       - ./laravel:/work/laravel
 
   nextjs:
+    container_name: mememo-nextjs
     build:
       context: ./
       dockerfile: ./infra/docker/development/nextjs/Dockerfile
     volumes:
       - ./nextjs:/work/nextjs
+    ports:
+      - 3000:3000
 
   db:
+    container_name: mememo-db
     build:
       context: ./
       dockerfile: ./infra/docker/development/mysql/Dockerfile
