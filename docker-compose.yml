@@ -5,28 +5,28 @@ volumes:
   db-store:
 
 services:
-  # nginx:
-  #   container_name: mememo-nginx
-  #   build:
-  #     context: ./
-  #     dockerfile: ./infra/docker/development/nginx/Dockerfile
-  #   volumes:
-  #     - php-fpm-socket:/var/run/php-fpm
-  #     - ./infra/docker/development/nginx/default.conf:/etc/nginx/conf.d/default.conf
-  #   ports:
-  #     - 8080:80
-  #   depends_on:
-  #     - laravel
-  #     - nextjs
+  nginx:
+    container_name: mememo-nginx
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/nginx/Dockerfile
+    volumes:
+      - php-fpm-socket:/var/run/php-fpm
+      - ./infra/docker/development/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - 8080:80
+    depends_on:
+      - laravel
+      - nextjs
 
-  # laravel:
-  #   contaienr_name: mememo-laravel
-  #   build:
-  #     context: ./
-  #     dockerfile: ./infra/docker/development/php/Dockerfile
-  #   volumes:
-  #     - php-fpm-socket:/var/run/php-fpm
-  #     - ./laravel:/work/laravel
+  laravel:
+    container_name: mememo-laravel
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/php/Dockerfile
+    volumes:
+      - php-fpm-socket:/var/run/php-fpm
+      - ./laravel:/work/laravel
 
   nextjs:
     container_name: mememo-nextjs
@@ -38,17 +38,17 @@ services:
     ports:
       - 3000:3000
 
-  # db:
-  #   container_name: mememo-db
-  #   build:
-  #     context: ./
-  #     dockerfile: ./infra/docker/development/mysql/Dockerfile
-  #   volumes:
-  #     - db-store:/var/lib/mysql
-  #   ports:
-  #     - 43306:3306 # 外部からDB内へのアクセス用
-  #   environment:
-  #     MYSQL_ROOT_PASSWORD: laravel
-  #     MYSQL_DATABASE: laravel
-  #     MYSQL_USER: laravel
-  #     MYSQL_PASSWORD: laravel
+  db:
+    container_name: mememo-db
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/mysql/Dockerfile
+    volumes:
+      - db-store:/var/lib/mysql
+    ports:
+      - 43306:3306 # 外部からDB内へのアクセス用
+    environment:
+      MYSQL_ROOT_PASSWORD: laravel
+      MYSQL_DATABASE: laravel
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: laravel
