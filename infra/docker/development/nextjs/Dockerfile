@@ -1,10 +1,3 @@
-FROM node:latest
+FROM node:18-alpine AS base
 
-COPY ./infra/docker/development/nextjs/package.json /work/nextjs/package.json
-
-RUN npm install -g npm@latest
-RUN npm install
-
-EXPOSE 3000
-WORKDIR /work/nextjs
-CMD ["npm", "run", "dev"]
+CMD ["sh"]
