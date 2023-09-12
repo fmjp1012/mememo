@@ -5,7 +5,7 @@ volumes:
   db-store:
 
 services:
-  nginx:
+  web:
     container_name: web
     build:
       context: ./
@@ -15,10 +15,10 @@ services:
     ports:
       - 8080:80
     depends_on:
-      - php
-      - nextjs
+      - laravel_app
+      - nextjs_app
 
-  php:
+  laravel_app:
     container_name: laravel_app
     build:
       context: ./
@@ -27,7 +27,7 @@ services:
       - php-fpm-socket:/var/run/php-fpm
       - ./laravel:/work/laravel
 
-  nextjs:
+  nextjs_app:
     container_name: nextjs_app
     build:
       context: ./
@@ -37,7 +37,7 @@ services:
     ports:
       - 3000:3000
 
-  mysql:
+  db:
     container_name: db
     build:
       context: ./
