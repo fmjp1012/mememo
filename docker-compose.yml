@@ -6,39 +6,42 @@ volumes:
 
 services:
   nginx:
-    container_name: mememo-nginx
+    container_name: nginx
     build:
-      context: ./infra/docker/development/nginx
+      context: ./
+      dockerfile: ./infra/docker/development/nginx/Dockerfile
     volumes:
       - php-fpm-socket:/var/run/php-fpm
-      - ./infra/docker/development/nginx/default.conf:/etc/nginx/conf.d/default.conf
     ports:
       - 8080:80
     depends_on:
-      - laravel
+      - php
       - nextjs
 
-  laravel:
-    container_name: mememo-laravel
+  php:
+    container_name: php
     build:
-      context: ./infra/docker/development/php
+      context: ./
+      dockerfile: ./infra/docker/development/php/Dockerfile
     volumes:
       - php-fpm-socket:/var/run/php-fpm
       - ./laravel:/work/laravel
 
   nextjs:
-    container_name: mememo-nextjs
+    container_name: nextjs
     build:
-      context: ./infra/docker/development/nextjs
+      context: ./
+      dockerfile: ./infra/docker/development/nextjs/Dockerfile
     volumes:
       - ./nextjs:/work/nextjs
     ports:
       - 3000:3000
 
-  db:
-    container_name: mememo-db
+  mysql:
+    container_name: mysql
     build:
-      context: ./infra/docker/development/mysql
+      context: ./
+      dockerfile: ./infra/docker/development/mysql/Dockerfile
     volumes:
       - db-store:/var/lib/mysql
     ports:
