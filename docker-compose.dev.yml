@@ -1,0 +1,53 @@
+version: "3.9"
+
+volumes:
+  php-fpm-socket:
+  db-store:
+
+services:
+  nginx:
+    container_name: nginx
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/nginx/Dockerfile
+    volumes:
+      - php-fpm-socket:/var/run/php-fpm
+    ports:
+      - 8080:80
+    depends_on:
+      - php
+      - nextjs
+
+  php:
+    container_name: php
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/php/Dockerfile
+    volumes:
+      - php-fpm-socket:/var/run/php-fpm
+      - ./laravel:/work/laravel
+
+  nextjs:
+    container_name: nextjs
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/nextjs/Dockerfile
+    volumes:
+      - ./nextjs:/work/nextjs
+    ports:
+      - 3000:3000
+
+  mysql:
+    container_name: mysql
+    build:
+      context: ./
+      dockerfile: ./infra/docker/development/mysql/Dockerfile
+    volumes:
+      - db-store:/var/lib/mysql
+    ports:
+      - 43306:3306 # 外部からDB内へのアクセス用
+    environment:
+      MYSQL_ROOT_PASSWORD: laravel
+      MYSQL_DATABASE: laravel
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: laravel
