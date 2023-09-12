@@ -6,7 +6,7 @@ volumes:
 
 services:
   nginx:
-    container_name: nginx
+    container_name: web
     build:
       context: ./
       dockerfile: ./infra/docker/development/nginx/Dockerfile
@@ -19,7 +19,7 @@ services:
       - nextjs
 
   php:
-    container_name: php
+    container_name: laravel_app
     build:
       context: ./
       dockerfile: ./infra/docker/development/php/Dockerfile
@@ -28,7 +28,7 @@ services:
       - ./laravel:/work/laravel
 
   nextjs:
-    container_name: nextjs
+    container_name: nextjs_app
     build:
       context: ./
       dockerfile: ./infra/docker/development/nextjs/Dockerfile
@@ -38,7 +38,7 @@ services:
       - 3000:3000
 
   mysql:
-    container_name: mysql
+    container_name: db
     build:
       context: ./
       dockerfile: ./infra/docker/development/mysql/Dockerfile
