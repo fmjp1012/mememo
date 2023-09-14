@@ -42,9 +42,11 @@ log-db:
 log-db-watch:
 	docker compose logs --follow db
 web:
-	docker compose exec web ash
+	docker compose exec web bash
 laravel_app:
 	docker compose exec laravel_app bash
+nextjs_app:
+	docker compose exec nextjs_app sh
 migrate:
 	docker compose exec laravel_app php artisan migrate
 fresh:
