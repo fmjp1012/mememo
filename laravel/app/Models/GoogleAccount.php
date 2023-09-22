@@ -10,6 +10,7 @@ class GoogleAccount extends Model
     use HasFactory;
 
     protected $fillable = [
+        'google_id',
         'user_id',
         'google_name',
         'email',

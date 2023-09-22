@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Laravel\Socialite\Facades\Socialite;
+use App\Models\GoogleAccount;
 use App\Models\User;
-use Auth;
+use Illuminate\Support\Facades\Auth;
+use Laravel\Socialite\Facades\Socialite;
 
 class GoogleController extends Controller
 {
@@ -17,30 +17,38 @@ class GoogleController extends Controller
     public function handleGoogleCallback()
     {
         try {
-            $user = Socialite::driver('google')->user();
+            $googleAccount = Socialite::driver('google')->user();
         } catch (\Exception $e) {
             return redirect('/')->with('error', 'Google login failed');
         }
 
-        // 以下はあなたのアプリケーションに合わせた処理を書く場所です。
-        // 例えば、取得したGoogleのユーザー情報を使って、
-        // データベースにユーザーを保存したり、
-        // トークンを生成したり、セッションを設定するなど。
+        $existingGoogleAccount = GoogleAccount::where('google_id', $googleAccount->getId())->first();
 
-        $existingUser = User::where('email', $user->getEmail())->first();
+        // GoogleAccountがDBに存在しない場合、まずUserを新規作成
+        if (is_null($existingGoogleAccount)) {
+            $newUser = User::create(
+                ['user_name' => $googleAccount->getName()]
+            );
 
-        if ($existingUser) {
-            Auth::login($existingUser);
-        } else {
-            $newUser = new User();
-            $newUser->email = $user->getEmail();
-            $newUser->name = $user->getName();
-            $newUser->google_id = $user->getId();
-            $newUser->save();
+            GoogleAccount::create([
+                'user_id' => $newUser->id,
+                'google_id' => $googleAccount->getId(),
+                'google_name' => $googleAccount->getName(),
+                'email' => $googleAccount->getEmail(),
+                'avatar' => $googleAccount->getAvatar(),
+            ]);
 
             Auth::login($newUser);
+        } else {
+            $existingGoogleAccount->update([
+                'google_name' => $googleAccount->getName(),
+                'email' => $googleAccount->getEmail(),
+                'avatar' => $googleAccount->getAvatar(),
+            ]);
+
+            Auth::login($existingGoogleAccount->user);
         }
 
-        return redirect('/home');
+        return redirect('/about');
     }
 }
