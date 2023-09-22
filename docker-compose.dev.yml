@@ -5,8 +5,8 @@ volumes:
   db-store:
 
 services:
-  web:
-    container_name: web
+  nginx:
+    container_name: nginx
     build:
       context: ./
       dockerfile: ./infra/docker/development/nginx/Dockerfile
@@ -15,11 +15,11 @@ services:
     ports:
       - 8080:80
     depends_on:
-      - laravel_app
-      - nextjs_app
+      - php
+      - nextjs
 
-  laravel_app:
-    container_name: laravel_app
+  php:
+    container_name: php
     build:
       context: ./
       dockerfile: ./infra/docker/development/php/Dockerfile
@@ -27,8 +27,8 @@ services:
       - php-fpm-socket:/var/run/php-fpm
       - ./laravel:/work/laravel
 
-  nextjs_app:
-    container_name: nextjs_app
+  nextjs:
+    container_name: nextjs
     build:
       context: ./
       dockerfile: ./infra/docker/development/nextjs/Dockerfile
@@ -37,8 +37,8 @@ services:
     ports:
       - 3000:3000
 
-  db:
-    container_name: db
+  mysql:
+    container_name: mysql
     build:
       context: ./
       dockerfile: ./infra/docker/development/mysql/Dockerfile

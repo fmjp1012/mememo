@@ -11,9 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('users', function (Blueprint $table) {
+        Schema::create('google_accounts', function (Blueprint $table) {
             $table->id();
-            $table->string('user_name');
+            $table->string('google_id')->unique();
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->string('google_name');
+            $table->string('email')->unique();
+            $table->string('avatar')->nullable();
             $table->timestamps();
         });
     }
@@ -23,6 +27,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('users');
+        Schema::dropIfExists('google_accounts');
     }
 };
