@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('google_id')->unique();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->string('name');
+            $table->string('google_name');
             $table->string('email')->unique();
             $table->string('avatar')->nullable();
             $table->timestamps();

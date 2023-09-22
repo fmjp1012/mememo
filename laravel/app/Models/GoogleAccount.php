@@ -11,7 +11,7 @@ class GoogleAccount extends Model
 
     protected $fillable = [
         'user_id',
-        'name',
+        'google_name',
         'email',
         'avatar',
     ];
