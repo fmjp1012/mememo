@@ -43,10 +43,10 @@ services:
       MYSQL_USER: laravel
       MYSQL_PASSWORD: laravel
 
-  vite:
-    container_name: vite
-    build:
-      context: ./
-      dockerfile: ./infra/docker/development/node/Dockerfile
-    volumes:
-      - ./laravel:/work/laravel
+  # vite:
+  #   container_name: vite
+  #   build:
+  #     context: ./
+  #     dockerfile: ./infra/docker/development/node/Dockerfile
+  #   volumes:
+  #     - ./laravel:/work/laravel

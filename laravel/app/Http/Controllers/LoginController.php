@@ -11,4 +11,8 @@ class LoginController extends Controller
     {
         return view('welcome');
     }
+    public function test()
+    {
+        return view('test');
+    }
 }
