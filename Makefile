@@ -4,10 +4,10 @@ build:
 	docker compose build --no-cache --force-rm
 init:
 	docker compose up -d --build
-	docker compose exec laravel_app composer install
-	docker compose exec laravel_app cp .env.example .env
-	docker compose exec laravel_app php artisan key:generate
-	docker compose exec laravel_app php artisan storage:link
+	docker compose exec app composer install
+	docker compose exec app cp .env.example .env
+	docker compose exec app php artisan key:generate
+	docker compose exec app php artisan storage:link
 	@make fresh
 remake:
 	@make destroy
@@ -33,46 +33,44 @@ log-web:
 	docker compose logs web
 log-web-watch:
 	docker compose logs --follow web
-log-laravel_app:
-	docker compose logs laravel_app
-log-laravel_app-watch:
-	docker compose logs --follow laravel_app
+log-app:
+	docker compose logs app
+log-app-watch:
+	docker compose logs --follow app
 log-db:
 	docker compose logs db
 log-db-watch:
 	docker compose logs --follow db
 web:
 	docker compose exec web bash
-laravel_app:
-	docker compose exec laravel_app bash
-nextjs_app:
-	docker compose exec nextjs_app sh
+app:
+	docker compose exec app bash
 migrate:
-	docker compose exec laravel_app php artisan migrate
+	docker compose exec app php artisan migrate
 fresh:
-	docker compose exec laravel_app php artisan migrate:fresh --seed
+	docker compose exec app php artisan migrate:fresh --seed
 seed:
-	docker compose exec laravel_app php artisan db:seed
+	docker compose exec app php artisan db:seed
 rollback-test:
-	docker compose exec laravel_app php artisan migrate:fresh
-	docker compose exec laravel_app php artisan migrate:refresh
+	docker compose exec app php artisan migrate:fresh
+	docker compose exec app php artisan migrate:refresh
 tinker:
-	docker compose exec laravel_app php artisan tinker
+	docker compose exec app php artisan tinker
 test:
-	docker compose exec laravel_app php artisan test
+	docker compose exec app php artisan test
 optimize:
-	docker compose exec laravel_app php artisan optimize
+	docker compose exec app php artisan optimize
 optimize-clear:
-	docker compose exec laravel_app php artisan optimize:clear
+	docker compose exec app php artisan optimize:clear
 cache:
-	docker compose exec laravel_app composer dump-autoload -o
+	docker compose exec app composer dump-autoload -o
 	@make optimize
-	docker compose exec laravel_app php artisan event:cache
-	docker compose exec laravel_app php artisan view:cache
+	docker compose exec app php artisan event:cache
+	docker compose exec app php artisan view:cache
 cache-clear:
-	docker compose exec laravel_app composer clear-cache
+	docker compose exec app composer clear-cache
 	@make optimize-clear
-	docker compose exec laravel_app php artisan event:clear
+	docker compose exec app php artisan event:clear
 npm:
 	@make npm-install
 npm-install:
@@ -92,13 +90,13 @@ sql:
 redis:
 	docker compose exec redis redis-cli
 ide-helper:
-	docker compose exec laravel_app php artisan clear-compiled
-	docker compose exec laravel_app php artisan ide-helper:generate
-	docker compose exec laravel_app php artisan ide-helper:meta
-	docker compose exec laravel_app php artisan ide-helper:models --nowrite
+	docker compose exec app php artisan clear-compiled
+	docker compose exec app php artisan ide-helper:generate
+	docker compose exec app php artisan ide-helper:meta
+	docker compose exec app php artisan ide-helper:models --nowrite
 phpcs:
-	docker compose exec laravel_app composer phpcs -- ./
+	docker compose exec app composer phpcs -- ./
 phpcbf:
-	docker compose exec laravel_app composer phpcbf -- ./
+	docker compose exec app composer phpcbf -- ./
 format:
-	docker compose exec laravel_app bash -c 'COMPOSER_MEMORY_LIMIT=-1 ./vendor/bin/phpcbf .'
+	docker compose exec app bash -c 'COMPOSER_MEMORY_LIMIT=-1 ./vendor/bin/phpcbf .'
