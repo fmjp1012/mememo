@@ -15,6 +15,14 @@ use Illuminate\Support\Facades\Route;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+Route::get('welcome', function () {
+    return view('welcome');
+});
+Route::get('/login', [LoginController::class, 'showAuthOptions'])->name('login');
 
-Route::get('/', [LoginController::class, 'index']);
-Route::get('/test', [LoginController::class, 'test']);
+Route::get('/login/google', [GoogleController::class, 'redirectToGoogle']);
+Route::get('/login/google/callback', [GoogleController::class, 'handleGoogleCallback']);
+// Route::get('/logout/google')
+
+Route::middleware(['auth'])->group(function () {
+});
