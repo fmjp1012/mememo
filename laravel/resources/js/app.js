@@ -5,11 +5,10 @@ import "../css/app.css";
 import { createApp } from "vue";
 
 //component
-// import TopIndex from "./componen/Top/TopIndex.vue";
-import Test from "./components/Test.vue";
+import LoginContainer from "./Pages/Login/LoginContainer.vue";
 
 
 const app = createApp({});
-app.component("Test", Test);
+app.component("LoginContainer", LoginContainer);
 
 app.mount("#app");
