@@ -1,3 +1,12 @@
+<template>
+  <div class="container">
+    <div class="logo"></div>
+    <a class="btn" href="/login/google">
+      Login with Google
+    </a>
+  </div>
+</template>
+
 <script>
 export default {
   data() {
@@ -7,12 +16,14 @@ export default {
 }
 </script>
 
-<template>
-  <button>Google Login</button>
-</template>
-
 <style scoped>
-button {
+.container {
+  width: 255;
+  height: 68px;
+}
+
+.btn {
   font-weight: bold;
+
 }
 </style>

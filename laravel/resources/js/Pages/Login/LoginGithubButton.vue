@@ -1,3 +1,7 @@
+<template>
+  <a href="/login/github">Login with Github</a>
+</template>
+
 <script>
 export default {
   data() {
@@ -6,10 +10,6 @@ export default {
   }
 }
 </script>
-
-<template>
-  <button>Github Login</button>
-</template>
 
 <style scoped>
 button {
