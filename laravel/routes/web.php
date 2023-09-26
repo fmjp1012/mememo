@@ -24,10 +24,14 @@ Route::get('welcome', function () {
 // 表示
 Route::get('/login', [LoginController::class, 'showAuthOptions'])->name('login');
 
-// Login
-Route::get('/login/google', [GoogleController::class, 'redirectToGoogle']);
-Route::get('/login/google/callback', [GoogleController::class, 'handleGoogleCallback']);
+// Google
+Route::get('/login/google', [LoginController::class, 'redirectToGoogle']);
+Route::get('/login/google/callback', [LoginController::class, 'handleGoogleCallback']);
 // Route::get('/logout/google')
+
+// Github
+Route::get('/login/github', [LoginController::class, 'redirectToGithub']);
+Route::get('/login/github/callback', [LoginController::class, 'handleGithubCallback']);
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/', [TopController::class, 'top'])->name('top');
