@@ -15,9 +15,9 @@ import LoginGithubButton from './LoginGithubButton.vue'
 export default {
   components: {
     LoginGoogleButton,
-    LoginGithubButton,
+    LoginGithubButton
   },
-  data() {
+  data () {
     return {
     }
   }
