@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\GithubAccount;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -26,6 +27,10 @@ class User extends Authenticatable
     public function googleAccount()
     {
         return $this->hasOne(GoogleAccount::class);
+    }
+    public function githubAccount()
+    {
+        return $this->hasOne(GithubAccount::class);
     }
 
     public function cards()

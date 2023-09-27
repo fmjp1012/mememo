@@ -5,11 +5,13 @@ import "../css/app.css";
 import { createApp } from "vue";
 
 //component
-// import TopIndex from "./componen/Top/TopIndex.vue";
-import Test from "./components/Test.vue";
-
+import LoginContainer from "./Pages/Login/LoginContainer.vue";
+import CardCreateContainer from "./Pages/CardCreate/CardCreateContainer.vue";
+import CardStudyContainer from "./Pages/CardStudy/CardStudyContainer.vue";
 
 const app = createApp({});
-app.component("Test", Test);
+app.component("LoginContainer", LoginContainer);
+app.component("CardCreateContainer", CardCreateContainer);
+app.component("CardStudyContainer", CardStudyContainer);
 
 app.mount("#app");
