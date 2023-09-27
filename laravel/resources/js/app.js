@@ -9,6 +9,7 @@ import LoginContainer from "./Pages/Login/LoginContainer.vue";
 import CardCreateContainer from "./Pages/CardCreate/CardCreateContainer.vue";
 import CardStudyContainer from "./Pages/CardStudy/CardStudyContainer.vue";
 import CardAllContainer from "./Pages/CardAll/CardAllContainer.vue";
+alsdfjalfjlewnlvelk
 
 const app = createApp({});
 app.component("LoginContainer", LoginContainer);
