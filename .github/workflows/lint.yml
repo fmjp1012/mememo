@@ -17,9 +17,11 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+        working-directory: ./laravel
 
       - name: Run ESLint
         run: npm run lint -- --config ./.eslint.cjs ./laravel
+        working-directory: ./laravel
 
       - name: Install PHP
         uses: shivammathur/setup-php@v2
