@@ -20,7 +20,7 @@ jobs:
         working-directory: ./laravel
 
       - name: Run ESLint
-        run: npm run lint -- --config ./.eslintrc.cjs
+        run: npm run lint
         working-directory: ./laravel
 
       - name: Install PHP

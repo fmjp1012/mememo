@@ -1,10 +1,9 @@
 {
     "private": true,
-    "type": "module",
     "scripts": {
         "dev": "vite",
         "build": "vite build",
-        "lint": "eslint . --ext .js,.vue --fix"
+        "lint": "eslint . --ext .js,.vue --fix --config .eslintrc.js resources/js",
     },
     "devDependencies": {
         "@vitejs/plugin-vue": "^4.3.4",
