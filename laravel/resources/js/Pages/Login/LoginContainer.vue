@@ -1,4 +1,5 @@
 <template>
+  <header-component />
   <div class="max-container">
     <h1>Login Page</h1>
     <div class="login-container">
@@ -9,11 +10,13 @@
 </template>
 
 <script>
+import HeaderComponent from '../../Components/HeaderComponent.vue'
 import LoginGoogleButton from './LoginGoogleButton.vue'
 import LoginGithubButton from './LoginGithubButton.vue'
 
 export default {
   components: {
+    HeaderComponent,
     LoginGoogleButton,
     LoginGithubButton
   },
@@ -26,7 +29,7 @@ export default {
 
 <style scoped>
 .max-container {
-  height: 100vh;
+  height: calc(100vh - 80px);
   background: #D9D9D9;
   display: flex;
   flex-direction: column;
