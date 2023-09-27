@@ -19,4 +19,8 @@ class TopController extends Controller
     {
         return view('card.study');
     }
+    public function all()
+    {
+        return view('card.all');
+    }
 }

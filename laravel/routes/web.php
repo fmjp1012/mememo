@@ -34,4 +34,5 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/', [TopController::class, 'top'])->name('top');
     Route::get('/card/create', [TopController::class, 'create'])->name('card.create');
     Route::get('/card/study', [TopController::class, 'study'])->name('card.study');
+    Route::get('/card/all', [TopController::class, 'all'])->name('card.all');
 });
