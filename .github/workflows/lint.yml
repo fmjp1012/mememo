@@ -20,8 +20,7 @@ jobs:
         working-directory: ./laravel
 
       - name: Run ESLint
-        run: npm run lint -- --config ./.eslintrc.cjs ./laravel
-        working-directory: ./laravel
+        run: npm run lint -- --config ./laravel/.eslintrc.cjs
 
       - name: Install PHP
         uses: shivammathur/setup-php@v2
@@ -30,6 +29,8 @@ jobs:
 
       - name: Install PHP dependencies
         run: composer install
+        working-directory: ./laravel
 
       - name: Run PHPCS
         run: vendor/bin/phpcs --standard=./laravel/phpcs.xml
+        
