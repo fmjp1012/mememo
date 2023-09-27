@@ -11,4 +11,12 @@ class TopController extends Controller
     {
         return view('top');
     }
+    public function create()
+    {
+        return view('card.create');
+    }
+    public function study()
+    {
+        return view('card.study');
+    }
 }
