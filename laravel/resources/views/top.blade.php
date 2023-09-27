@@ -9,5 +9,7 @@
 <body>
     <h1>Top Page</h1>
     <p>Login済み</p>
+    <a href="/card/create">カード作成</a>
+    <a href="/card/study">カード使用</a>
 </body>
 </html>
