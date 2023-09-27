@@ -1,0 +1,33 @@
+name: Lint
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint
+        run: npm run lint -- --config ./.eslint.cjs ./laravel
+
+      - name: Install PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+
+      - name: Install PHP dependencies
+        run: composer install
+
+      - name: Run PHPCS
+        run: vendor/bin/phpcs --standard=./laravel/phpcs.xml
