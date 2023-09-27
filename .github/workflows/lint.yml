@@ -33,6 +33,6 @@ jobs:
         working-directory: ./laravel
 
       - name: Run PHPCS
-        run: vendor/bin/phpcs --standard=./phpcs.xml
+        run: vendor/bin/phpcs --standard=./phpcs.xml ./app
         working-directory: ./laravel
         
