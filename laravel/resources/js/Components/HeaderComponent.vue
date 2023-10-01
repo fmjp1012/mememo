@@ -4,7 +4,7 @@
       <div class="logo"></div>
       <div v-if="mode === 'card'" class="tab"></div>
       <div v-if="mode === 'card'" class="avatar">
-        <img class="profile-picture" :src="user.avatar" alt="profile-picture">
+        <img class="profile-picture" :src="user.avatar" alt="profile-picture" />
       </div>
     </div>
   </header>
@@ -15,19 +15,18 @@ export default {
   props: {
     mode: {
       type: String,
-      required: true
+      required: true,
     },
     user: {
       type: Object,
       default: () => {},
-      required: false
-    }
+      required: false,
+    },
   },
   data() {
-    return {
-    }
-  }
-}
+    return {};
+  },
+};
 </script>
 <style scoped>
 .container {
@@ -39,7 +38,7 @@ export default {
   justify-content: space-between;
   align-items: center;
   flex-direction: column;
-  background: #545F71;
+  background: #545f71;
   box-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);
 }
 </style>

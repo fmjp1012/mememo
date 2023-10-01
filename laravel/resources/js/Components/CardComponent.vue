@@ -1,8 +1,13 @@
 <template>
   <div class="card-container">
     <p class="title">{{ title }}</p>
-    <div class="input-container">
-      <textarea id="input" name="input"></textarea>
+    <div class="text-container">
+      <textarea
+        v-if="mode === 'Create'"
+        id="input"
+        name="input"
+      />
+      <p v-else-if="mode === 'Study'">{{ card.question }}</p>
     </div>
   </div>
 </template>
@@ -10,29 +15,37 @@
 <script>
 export default {
   props: {
+    // mode: Create or Study
+    mode: {
+      type: String,
+      required: true,
+    },
     title: {
       type: String,
-      required: true
-    }
+      required: true,
+    },
+    card: {
+      type: Object,
+      required: false,
+      default: () => {},
+    },
   },
   data() {
-    return {
-
-    }
-  }
-}
+    return {};
+  },
+};
 </script>
 <style scoped>
 .card-container {
   width: 500px;
   height: 300px;
   border-radius: 0px 0px 10px 10px;
-  background-color: #FFF;
+  background-color: #fff;
 }
 
 .title {
-  color: #FFF;
-  background-color: #545F71;
+  color: #fff;
+  background-color: #545f71;
   font-family: Noto Sans;
   font-size: 24px;
   font-style: normal;
@@ -41,7 +54,7 @@ export default {
   text-align: center;
 }
 
-.input-container {
+.text-container {
   width: 100%;
   height: calc(100% - 40px);
   border-radius: 0px 0px 10px 10px;
@@ -52,12 +65,12 @@ export default {
   height: 100%;
   border: none;
   outline: none;
-  resize: none; /* ユーザーがリサイズできないようにする */
+  resize: none;
   background: none;
   box-shadow: none;
-  font-size: 1em; /* フォントサイズを1emに設定 */
-  font-family: inherit; /* 親要素からフォントファミリーを継承 */
-  color: inherit; /* 親要素からテキストカラーを継承 */
-  line-height: 1; /* ラインハイトを1に設定 */
+  font-size: 1em;
+  font-family: inherit;
+  color: inherit;
+  line-height: 1;
 }
 </style>

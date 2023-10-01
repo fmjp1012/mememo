@@ -10,27 +10,26 @@
 </template>
 
 <script>
-import HeaderComponent from '../../Components/HeaderComponent.vue'
-import LoginGoogleButton from './LoginGoogleButton.vue'
-import LoginGithubButton from './LoginGithubButton.vue'
+import HeaderComponent from '../../Components/HeaderComponent.vue';
+import LoginGoogleButton from './LoginGoogleButton.vue';
+import LoginGithubButton from './LoginGithubButton.vue';
 
 export default {
   components: {
     HeaderComponent,
     LoginGoogleButton,
-    LoginGithubButton
+    LoginGithubButton,
   },
-  data () {
-    return {
-    }
-  }
-}
+  data() {
+    return {};
+  },
+};
 </script>
 
 <style scoped>
 .max-container {
   height: calc(100vh - 80px);
-  background: #D9D9D9;
+  background: #d9d9d9;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -49,7 +48,7 @@ export default {
   gap: 50px;
   flex-shrink: 0;
   border-radius: 30px;
-  background: #545F71;
+  background: #545f71;
   box-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);
 }
 </style>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Auth;
 use Illuminate\Http\Request;
 
 class TopController extends Controller
@@ -13,11 +14,14 @@ class TopController extends Controller
     }
     public function create()
     {
-        return view('card.create');
+        $user = Auth::user();
+        return view('card.create', compact('user'));
     }
     public function study()
     {
-        return view('card.study');
+        $user = Auth::user();
+        $cards = $user->cards;
+        return view('card.study', compact('user', 'cards'));
     }
     public function all()
     {

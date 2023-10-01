@@ -1,0 +1,12 @@
+{
+  "singleAttributePerLine": true,
+  "tabWidth": 2,
+  "overrides": [
+    {
+      "files": ["*.php"],
+      "options": {
+        "tabWidth": 4
+      }
+    }
+  ]
+}

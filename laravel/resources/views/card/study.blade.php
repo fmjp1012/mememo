@@ -12,7 +12,10 @@
 
 <body>
     <div id="app">
-        <card-study-container />
+        <card-study-container 
+            :user="{{ json_encode($user) }}"
+            :cards="{{ json_encode($cards) }}"
+        />
     </div>
 </body>
 

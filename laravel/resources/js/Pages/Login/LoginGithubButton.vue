@@ -1,7 +1,9 @@
 <template>
   <div class="btn-container">
     <a class="btn" href="/login/github">
-      <div class="logo"><img src="storage/images/github_logo.svg" alt="Github Logo" /></div>
+      <div class="logo">
+        <img src="storage/images/github_logo.svg" alt="Github Logo" />
+      </div>
       <div class="btn-title">Login with github</div>
     </a>
   </div>
@@ -9,11 +11,10 @@
 
 <script>
 export default {
-  data () {
-    return {
-    }
-  }
-}
+  data() {
+    return {};
+  },
+};
 </script>
 
 <style scoped>
@@ -29,7 +30,7 @@ export default {
   justify-content: center;
   align-items: center;
   border-radius: 20px;
-  background: #FFF;
+  background: #fff;
   box-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);
   text-decoration: none;
 }

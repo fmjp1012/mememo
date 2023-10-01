@@ -12,7 +12,9 @@
 
 <body>
     <div id="app">
-        <card-create-container />
+        <card-create-container 
+            :user="{{ json_encode($user) }}"
+        />
     </div>
 </body>
 
