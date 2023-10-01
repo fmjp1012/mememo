@@ -1,17 +1,21 @@
 {
-    "root": true,
-    "env": {
-        "browser": true,
-        "es6": true
-    },
-    "rules": {
-        "vue/singleline-html-element-content-newline": [
-            "error",
-            {
-                "ignoreWhenNoAttributes": false,
-                "ignoreWhenEmpty": true
-            }
-        ]
-    },
-    "extends": ["eslint:recommended", "prettier"]
+  "root": true,
+  "env": {
+    "browser": true,
+    "es6": true
+  },
+  "rules": {
+  },
+  "parserOptions": {
+    "ecmaVersion": 6,
+    "sourceType": "module"
+  },
+  "extends": ["eslint:recommended", "prettier"],
+  "plugins": ["vue"],
+  "overrides": [
+    {
+      "files": ["*.vue"],
+      "parser": "vue-eslint-parser"
+    }
+  ]
 }

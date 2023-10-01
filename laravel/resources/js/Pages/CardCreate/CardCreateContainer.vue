@@ -2,12 +2,12 @@
   <header-component :user="user" />
   <div class="container">
     <div class="flex-container">
-      <CardComponent
+      <CardInput
         mode="Create"
         title="Question"
         @input-change="handleQuestionInputChange"
       />
-      <CardComponent
+      <CardInput
         mode="Create"
         title="Answer"
         @input-change="handleAnswerInputChange"
@@ -18,13 +18,13 @@
 </template>
 
 <script>
-import HeaderComponent from "../../Components/HeaderComponent.vue";
-import CardComponent from "../../Components/CardComponent.vue";
+import HeaderComponent from "@/Components/HeaderComponent.vue";
+import CardInput from "@/Components/CardInput.vue";
 
 export default {
   components: {
     HeaderComponent,
-    CardComponent,
+    CardInput,
   },
   props: {
     user: {

@@ -1,8 +1,8 @@
 <template>
   <div class="card-container">
     <p class="title">{{ title }}</p>
-    <div class="text-container">
-      <p>{{ card.question }}</p>
+    <div class="input-container">
+      <textarea name="input" />
     </div>
   </div>
 </template>
@@ -44,7 +44,7 @@ export default {
   text-align: center;
 }
 
-.text-container {
+.input-container {
   width: 100%;
   height: calc(100% - 40px);
   border-radius: 0px 0px 10px 10px;
