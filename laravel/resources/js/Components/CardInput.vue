@@ -2,13 +2,14 @@
   <div class="card-container">
     <p class="title">{{ title }}</p>
     <div class="input-container">
-      <textarea name="input" />
+      <textarea name="input" id="input" v-model="inputText"/>
     </div>
   </div>
 </template>
 
 <script>
 export default {
+  emits: ["input-change"],
   props: {
     title: {
       type: String,
@@ -21,7 +22,9 @@ export default {
     },
   },
   data() {
-    return {};
+    return {
+      inputText: "",
+    };
   },
 };
 </script>
@@ -48,10 +51,13 @@ export default {
   width: 100%;
   height: calc(100% - 40px);
   border-radius: 0px 0px 10px 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 #input {
-  width: 100%;
+  width: 90%;
   height: 100%;
   border: none;
   outline: none;

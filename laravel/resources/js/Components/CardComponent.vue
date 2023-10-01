@@ -48,10 +48,12 @@ export default {
   width: 100%;
   height: calc(100% - 40px);
   border-radius: 0px 0px 10px 10px;
+  display: flex;
+  justify-content: center;
 }
 
 #input {
-  width: 100%;
+  width: 90%;
   height: 100%;
   border: none;
   outline: none;
