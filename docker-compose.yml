@@ -10,7 +10,7 @@ services:
     container_name: web
     build:
       context: ./
-      dockerfile: ./infra/docker/development/nginx/Dockerfile
+      dockerfile: ./infra/development/nginx/Dockerfile
     volumes:
       - php-fpm-socket:/var/run/php-fpm
       - ./laravel:/work/laravel
@@ -23,7 +23,7 @@ services:
     container_name: app
     build:
       context: ./
-      dockerfile: ./infra/docker/development/php/Dockerfile
+      dockerfile: ./infra/development/php/Dockerfile
     volumes:
       - php-fpm-socket:/var/run/php-fpm
       - ./laravel:/work/laravel
@@ -32,7 +32,7 @@ services:
     container_name: db
     build:
       context: ./
-      dockerfile: ./infra/docker/development/mysql/Dockerfile
+      dockerfile: ./infra/development/mysql/Dockerfile
     volumes:
       - db-store:/var/lib/mysql
     ports:
@@ -47,7 +47,7 @@ services:
     container_name: vite
     build:
       context: ./
-      dockerfile: ./infra/docker/development/vite/Dockerfile
+      dockerfile: ./infra/development/vite/Dockerfile
     ports:
       - 5173:5173
     volumes:
