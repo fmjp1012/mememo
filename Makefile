@@ -73,7 +73,7 @@ cache-clear:
 npm:
 	@make npm-install
 npm-install:
-	docker compose exec web npm install
+	docker compose exec app npm install
 npm-dev:
 	docker compose exec web npm run dev
 npm-watch:

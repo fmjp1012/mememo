@@ -51,4 +51,5 @@ services:
     ports:
       - 5173:5173
     volumes:
-      - ./laravel:/work/laravel
+      - ./laravel/public:/work/laravel/public
+      - ./laravel/resources:/work/laravel/resources
