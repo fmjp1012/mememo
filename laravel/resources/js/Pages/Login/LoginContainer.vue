@@ -1,5 +1,5 @@
 <template>
-  <header-component />
+  <login-header />
   <div class="max-container">
     <h1>Login Page</h1>
     <div class="login-container">
@@ -10,7 +10,7 @@
 </template>
 
 <script>
-import HeaderComponent from '../../Components/HeaderComponent.vue';
+import HeaderComponent from '@/Components/HeaderComponent.vue';
 import LoginGoogleButton from './LoginGoogleButton.vue';
 import LoginGithubButton from './LoginGithubButton.vue';
 

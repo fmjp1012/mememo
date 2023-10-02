@@ -4,3 +4,7 @@
     box-sizing: border-box;
     font-family: "Noto Sans", sans-serif;
 }
+
+body {
+  background: #d9d9d9;
+}

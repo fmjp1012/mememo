@@ -5,17 +5,12 @@
     "es6": true
   },
   "rules": {
+    "vue/html-self-closing": "off"
   },
   "parserOptions": {
-    "ecmaVersion": 6,
+    "ecmaVersion": 2023,
     "sourceType": "module"
   },
-  "extends": ["eslint:recommended", "prettier"],
-  "plugins": ["vue"],
-  "overrides": [
-    {
-      "files": ["*.vue"],
-      "parser": "vue-eslint-parser"
-    }
-  ]
+  "extends": ["eslint:recommended", "prettier", "plugin:vue/vue3-recommended"],
+  "plugins": ["vue"]
 }

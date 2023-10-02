@@ -72,7 +72,7 @@ class LoginController extends Controller
             ]);
         } else {
             $existingGithubAccount->update([
-                'github_name' => $githubUser->getName(),
+                'github_name' => $githubUser->getNickname(),
                 'email' => $githubUser->getEmail(),
                 'avatar' => $githubUser->getAvatar(),
             ]);

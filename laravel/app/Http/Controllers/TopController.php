@@ -23,8 +23,20 @@ class TopController extends Controller
         $cards = $user->cards;
         return view('card.study', compact('user', 'cards'));
     }
-    public function all()
+    public function index()
     {
-        return view('card.all');
+        $user = Auth::user();
+        $cards = $user->cards;
+        return view('card.index', compact('user', 'cards'));
+    }
+    public function debug()
+    {
+        return view('debug');
+    }
+    public function edit(int $cardId)
+    {
+        $user = Auth::user();
+        $card = $user->cards()->findOrFail($cardId);
+        return view('card.edit', compact('user', 'card'));
     }
 }

@@ -1,8 +1,12 @@
 <template>
-  <div class="card-container">
+  <div
+    class="card-container"
+    @click="handleClick"
+  >
     <p class="title">{{ title }}</p>
     <div class="text-container">
-      <p>{{ card.question }}</p>
+      <p v-if="title==='Question'">{{ card.question }}</p>
+      <p v-else-if="title==='Answer'">{{ card.answer }}</p>
     </div>
   </div>
 </template>
@@ -10,18 +14,25 @@
 <script>
 export default {
   props: {
-    title: {
-      type: String,
-      required: true,
-    },
     card: {
       type: Object,
-      required: false,
-      default: () => {},
+      required: true,
     },
   },
   data() {
-    return {};
+    return {
+      title: "Question",
+      cardContent: this.card.question,
+    };
+  },
+  methods: {
+    handleClick() {
+      this.title = this.title === "Question" ? "Answer" : "Question";
+      this.cardContent =
+        this.title === "Question"
+          ? this.card.question
+          : this.card.answer;
+    },
   },
 };
 </script>
@@ -31,6 +42,7 @@ export default {
   height: 300px;
   border-radius: 0px 0px 10px 10px;
   background-color: #fff;
+  box-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);
 }
 
 .title {

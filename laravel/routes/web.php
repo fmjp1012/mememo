@@ -31,8 +31,15 @@ Route::get('/login/github/callback', [LoginController::class, 'handleGithubCallb
 Route::get('/logout', [LoginController::class, 'logout'])->name('logout');
 
 Route::middleware(['auth'])->group(function () {
-    Route::get('/', [TopController::class, 'top'])->name('top');
+    // view
+    Route::get('/', [TopController::class, 'index'])->name('top');
     Route::get('/card/create', [TopController::class, 'create'])->name('card.create');
     Route::get('/card/study', [TopController::class, 'study'])->name('card.study');
-    Route::get('/card/all', [TopController::class, 'all'])->name('card.all');
+    Route::get('/card/{card}', [TopController::class, 'edit'])->name('card.edit');
+    Route::get('/card', [TopController::class, 'index'])->name('card.index');
+
+    // api
+    Route::post('/card', [CardController::class, 'store'])->name('card.store');
+    Route::put('/card/{card}', [CardController::class, 'update'])->name('card.update');
+    Route::delete('/card/{card}', [CardController::class, 'delete'])->name('card.delete');
 });

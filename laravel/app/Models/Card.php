@@ -16,7 +16,7 @@ class Card extends Model
      */
     protected $fillable = [
         'user_id',
-        'quistion',
+        'question',
         'answer',
     ];
 

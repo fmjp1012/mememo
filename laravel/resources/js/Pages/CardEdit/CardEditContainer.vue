@@ -24,10 +24,10 @@
       </div>
     </div>
     <button
-      class="create-btn"
-      @click="handleCreateClick"
+      class="update-btn"
+      @click="handleUpdateClick"
     >
-      create
+      Update
     </button>
   </div>
 </template>
@@ -45,27 +45,29 @@ export default {
       type: Object,
       required: true,
     },
+    card: {
+      type: Object,
+      required: true,
+    },
   },
   data() {
     return {
-      questionText: "",
-      answerText: "",
+      questionText: this.card.question,
+      answerText: this.card.answer,
     };
   },
   created() {},
   methods: {
-    async handleCreateClick() {
+    async handleUpdateClick() {
       try {
-        const response = await axios.post("/card", {
-          userId: this.user.id,
+        await axios.put(`/card/${this.card.id}`, {
           question: this.questionText,
           answer: this.answerText,
         });
-        console.log("Data posted!", response);
-        alert("Card created!");
+        alert("Card updated!");
+        window.location.href = "/card";
       } catch (error) {
-        console.error("There was an error!", error);
-        alert("An error occurred while creating the card.");
+        alert("An error occurred while updating the card.");
       }
     },
   },
@@ -128,7 +130,7 @@ export default {
   color: inherit;
   line-height: 1;
 }
-.create-btn {
+.update-btn {
   font-size: 24px;
   font-weight: 600;
   border: none;
