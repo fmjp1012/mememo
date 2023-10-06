@@ -13,5 +13,17 @@
 
 
 ## keyword
-- php
- - socialite˝
+- PHP
+    - Laravel
+    - socialite
+    - phpcs
+
+- JavaScript
+    - Vue.js
+    - eslint
+    - axios
+    - vite
+
+- OAuth
+    - Google
+    - GitHub
