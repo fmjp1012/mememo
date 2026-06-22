@@ -173,6 +173,9 @@ Use those lists to decide the cheapest next pass:
 - Treat `answer_review` as a smaller second pass for manual/LLM verification.
 - Keep `copyright_blocked` questions excluded unless the missing passage is not
   required to answer.
+- Hide officer questions without an integer `answer` from practice until their
+  image/crop problem is fixed. Keeping them in JSON is useful for audit target
+  lists, but learners should only see answerable questions.
 
 Current R7 visibility policy: `src/learningContent.js` only exposes latest
 officer exam IDs (`r7-1-kyouyou`, `r7-2-kyouyou`, `r7-1-senmon`,
@@ -182,6 +185,17 @@ quality is acceptable.
 For officer GPT-5 mini correction, target cropped images first. Avoid sending
 fallback page images such as `/officer/pages/.../page-01.jpg` unless the target
 question is definitely visible and isolated enough for reliable transcription.
+Use `--max-output-tokens 2500` as the normal ceiling for image-plus-JSON answer
+generation; `900` was too low and caused truncated JSON. Retry only failed IDs,
+and raise to `3500` only for stubborn image-heavy questions.
+
+Keep answer explanations consistent and compact. The current prompt target is:
+`根拠: ...。判断: ...。他の選択肢: ...。` For English questions, start with a
+short `訳: ...。` block before the same judgment structure. Prefer deterministic
+local checks before another LLM call when the problem is arithmetic, graph/path
+counting, or source lookup. For current facts and legal/political theory items,
+use official or stable reference checks and record `manual-source-review` in
+`processingHistory` instead of spending another image call.
 
 Example target-list generation for officer crops with numeric placeholder
 choices:

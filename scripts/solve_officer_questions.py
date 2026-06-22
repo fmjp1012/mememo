@@ -37,9 +37,11 @@ Rules:
 - Do not solve questions whose required source passage is unavailable due to copyright. Set solvable=false and answerLabel=null.
 - If the image is insufficient, still return your best transcription and set needsReview=true.
 - The answer is AI-estimated, not official. Calibrate confidence honestly.
-- Explanations should be concise, useful for review, and in Japanese.
+- Keep explanation length consistent across questions.
+- For ordinary non-English questions, use this structure in 3 concise Japanese sentences: "根拠: ...。判断: ...。他の選択肢: ...。"
+- For calculation questions, show only the key formula/substitution and the final choice; avoid long derivations.
 - For English questions, include Japanese translations for every English sentence, phrase, and choice needed to review the problem. Do not only translate the correct choice; cover all English answer choices and quoted English text visible in the target question.
-- For English questions, structure the explanation so the translation block is easy to scan, then explain why the selected answer is best and why the other choices are wrong.
+- For English questions, use a compact structure: "訳: ...。判断: ...。他の選択肢: ...。" Keep it readable but avoid verbose commentary.
 - Do not use web knowledge for current events unless the information is already present in the question; this run has no web tool.
 """
 
@@ -165,7 +167,7 @@ def user_content(question: dict) -> list[dict]:
     return content
 
 
-def openai_response(question: dict, model: str, timeout: int) -> dict:
+def openai_response(question: dict, model: str, timeout: int, max_output_tokens: int) -> dict:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set.")
@@ -183,6 +185,7 @@ def openai_response(question: dict, model: str, timeout: int) -> dict:
                 "schema": JSON_SCHEMA,
             }
         },
+        "max_output_tokens": max_output_tokens,
     }
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = request.Request(
@@ -373,7 +376,7 @@ def mark_copyright_blocked(question: dict, model: str) -> None:
     )
 
 
-def estimate_tokens(targets: list[dict]) -> dict:
+def estimate_tokens(targets: list[dict], max_output_tokens: int) -> dict:
     chars = 0
     for question in targets:
         transcription = question.get("transcription") or {}
@@ -384,7 +387,7 @@ def estimate_tokens(targets: list[dict]) -> dict:
     return {
         "questions": len(targets),
         "estimatedInputTokensTextOnly": max(1, int(chars / 2.2)),
-        "estimatedOutputTokens": len(targets) * 900,
+        "estimatedOutputTokens": len(targets) * max_output_tokens,
         "includesImages": True,
     }
 
@@ -402,6 +405,7 @@ def main() -> int:
     parser.add_argument("--include-reviewed", action="store_true")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--sleep", type=float, default=0.25)
+    parser.add_argument("--max-output-tokens", type=int, default=2500)
     args = parser.parse_args()
 
     questions_json = args.questions_json if args.questions_json.is_absolute() else ROOT / args.questions_json
@@ -413,7 +417,7 @@ def main() -> int:
     targets = select_targets(questions, args.exam_prefix, args.include_reviewed, ids)
     if args.limit:
         targets = targets[: args.limit]
-    estimate = estimate_tokens(targets)
+    estimate = estimate_tokens(targets, args.max_output_tokens)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     (REPORT_DIR / "last-selection.json").write_text(json.dumps(estimate, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if not args.apply:
@@ -433,7 +437,7 @@ def main() -> int:
             skipped.append({"id": target["id"], "reason": "copyright_blocked"})
             continue
         try:
-            response = openai_response(target, args.model, args.timeout)
+            response = openai_response(target, args.model, args.timeout, args.max_output_tokens)
             solution = validate_solution(extract_output_json(response))
             apply_solution(target, solution, args.model)
             usage = usage_from_response(response)

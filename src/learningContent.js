@@ -63,7 +63,7 @@ export const visibleLearningPacks = [
     label: "一般幹部候補生等 一般教養・専門択一",
     title: "一般幹部候補生等採用試験",
     description: "防衛省・自衛隊が公開している幹部候補生等試験の最新1年分を演習。",
-    exam: "277問 / 五肢択一 / AI推定解答あり",
+    exam: "272問 / 五肢択一 / AI推定解答あり",
     accent: "#476a3b",
     memberPackIds: officerCandidatePackIds,
   },
@@ -109,6 +109,9 @@ export async function loadQuestionBank() {
 
 function isUsableQuestion(question) {
   if (officerCandidatePackIds.includes(question.packId) && !latestOfficerExamIds.has(question.examId)) {
+    return false;
+  }
+  if (officerCandidatePackIds.includes(question.packId) && !Number.isInteger(question.answer)) {
     return false;
   }
   const text = [

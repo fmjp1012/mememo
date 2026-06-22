@@ -37,8 +37,10 @@ def is_copyright_blocked(question: dict) -> bool:
 
 def bucket_questions(questions: list[dict]) -> dict[str, list[dict]]:
     visible = [question for question in questions if not is_copyright_blocked(question)]
+    practice_visible = [question for question in visible if isinstance(question.get("answer"), int)]
     return {
         "visible": visible,
+        "practice_visible": practice_visible,
         "copyright_blocked": [question for question in questions if is_copyright_blocked(question)],
         "missing_images": [question for question in visible if not (ROOT / "public" / str(question.get("image", "")).lstrip("/")).exists()],
         "bad_choice_count": [question for question in visible if len(question.get("choices") or []) != 5],
@@ -59,6 +61,7 @@ def summarize(questions: list[dict], buckets: dict[str, list[dict]]) -> dict:
         "noAnswer": 0,
         "answerReview": 0,
         "copyrightBlocked": 0,
+        "practiceVisible": 0,
     })
     copyright_ids = {question["id"] for question in buckets["copyright_blocked"]}
     for question in questions:
@@ -76,6 +79,8 @@ def summarize(questions: list[dict], buckets: dict[str, list[dict]]) -> dict:
             by_exam[exam]["genericChoices"] += 1
         if not isinstance(question.get("answer"), int):
             by_exam[exam]["noAnswer"] += 1
+        else:
+            by_exam[exam]["practiceVisible"] += 1
         if question.get("needsAnswerReview"):
             by_exam[exam]["answerReview"] += 1
     return {
