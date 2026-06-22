@@ -1,0 +1,20 @@
+問69 手続 printArray は, 配列 integerArray の要素を並べ替えて出力する。 手続
+printArray を呼び出したときの出力はどれか。ここで, 配列の要素番号は1から始ま
+る。
+[プログラム〕
+OprintArray()
+整数型: nm
+整数型の配列: integerArray で (2, 4, 1, 3}
+for (n を 1 から (integerArray の要素数 一 1) まで 1 ずつ増やす)
+for (m を 1 から (integerArray の要素数 一 n) まで 1 ずつ増やす)
+if (integerArray[m] > integerArray[m 十 1])
+integerArray[m] と integerArray[m 十 1] の値を入れ替える
+endif
+endfor
+endfor
+integerArray の全ての要素 を先頭から順にコンマ区切りで出力する
+天 1あめ放4        イ 1324        ウ 314ル2        王 軸1
+間61 IoT システムなどの設計, 構築及び運用に際しての基本原則とされ, システムの企
+画, 設計段階から情報セキュリティを確保するための方策を何と呼ぶか。
+ア セキュアブート          イ セキュリティバイデザイン
+ウ ユニバーサルデザイン        エ リブート

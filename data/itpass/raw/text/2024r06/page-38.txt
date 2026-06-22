@@ -1,0 +1,18 @@
+間85 関数 binaryToInteger は, 1桁以上の符号なし2進数を文字列で表した値を引数
+binaryStr で受け取り, その値を整数に変換した結果を戻り値とする。例えば, 引数
+として “100” を受け取ると, 4を返す。 プログラム中の a, b に入れる字句の適切な
+組合せはどれか。
+
+〔プログラム〕
+O整数型: binaryToInteger(文字列型: binaryStr)
+整数型: integerNum, digitNum, exponent, |
+integerNum < 0
+for (i を 1 から binaryStr の文字数 まで 1 ずつ増やす)
+digitNum < binaryStr の末尾から i 番目の文字を整数型に変換した値
+// 例: 文字 “1” であれば整数値1に変換
+exponent [|_。 |
+integerNum | 5 |
+endfor
+return integerNum
+還還証還昌 間昌昌昌間還芝間是是還間
+ー 38 一

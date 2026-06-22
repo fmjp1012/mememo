@@ -1,0 +1,28 @@
+問62 関数convert は, 整数型の配列を一定のルールで文字列に変換するプログラムであ
+る。 関数 convert を convert(arrayInput)として呼び出したときの戻り値が
+"AABAB" になる引数 arrayInput の値はどれか。ここで, arrayInput の要素数は1以
+上とし, 配列の要素番号は1から始まる。
+
+[プログラム)
+〇文字列型: convert(整数型の配列: arrayInput)
+文字列型: stringOutput で "” // 空文字列を格納
+整数型: i
+for (| を 1 から arrayInput の要素数 まで 1 ずつ増やす)
+if (arrayInput[i] が 1 と等しい)
+stringOutput の未尾 に "A” を追加する
+else
+stringOutput の未尾 に "B" を追加する
+endif
+endfor
+return stringOutput
+ア 0. 9 1。 2 1                   イ 9, 1, 2 1, 1)
+ウ 1人(1, 9, 1, 2, 9)                   エ 作, 1 2 1. 9)
+
+問63 SSD の全てのデータを消去し, 復元できなくする方法として用いられているものは
+
+大れか。
+
+ア Secure Erase                イ 磁気消去
+
+ウツ もキギュェアアプート          下 デーウみクレンジッグ
+ご 28こ

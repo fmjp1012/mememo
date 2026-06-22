@@ -1,0 +1,26 @@
+問99 関数 calculateAmountOfPrize は, 業務改善の効果における改善額と短縮期間を,
+それぞれ improvement と period で受け取り, 賞金額を戻り値とする。改善額が20万
+円で短縮期間が3日の業務改善と, 改善額が5万円で短縮期間が14日の業務改善があっ
+た。この二つの賞金額の合計は何円か。ここで, 改善額と短縮期間の値はそれぞれ6
+以上とする。
+
+〔プログラム〕
+〇整数型: calculateAmountOfPrize(整数型: improvement, // 改善額(円)
+整数型: period) // 短縮期間(日)
+整数型: prize // 賞金額(円)
+if (improvement が 100999 より小さい)
+if (period が 7 より小さい)
+prize で 500
+なSe
+prize で16090
+endif
+else
+if (period が 7 より小さい)
+prize で 2000
+else
+prize で 5000
+endif
+endif
+return Drize
+アァ 1.000       ィ 1500       ウ 3.000       ェ 5,500
+ー 4R 一

@@ -1,0 +1,29 @@
+問67 手続sort は, 要素数が2以上の整数型の配列を引数 numberArray で受け取り, その
+要素を昇順に並べ替えた結果を出力する。手続 sort の動作確認のために, 処理の途
+中で 」 の値と workArray の全ての要素を出力する。 配列 numberArray を{3, 5, 1, 2,
+4)とし, 手続sort を sort(numberArray)として呼び出したとき, 」の値が3と出力さ
+れた直後の workArray の全ての要素の出力はどれか。ここで, 配列の要素番号は1か
+ら始まる。
+
+〔プログラム〕
+     Osort(整数型の配列: numberArray)
+整数型: mintndex, 」j」, k
+.    整数型の配列: workArray < numberArray // 配列の複製を作る
+for (」を 1 から (workArray の要素数 一 1) まで 1 ずつ増やす)
+// j 番目から未尾までの要素の中で最も小さい値をもつ要素の要素番号を
+// 一つ求める
+    minIndex で 」j
+for (k を (」十 1) から workArray の要素数 まで 1 ずつ増やす)
+if (workArray[k] が workArray[minIndex] より小さい)
+mintndex とk
+endif
+endfor
+workArray[」] と workArray[minIndex] の値を入れ替える
+// 動作確認のために, 」の値と workArray の全ての要素を出力する
+」の値を出力する
+workArray の全ての要素 を先頭から順にコンマ区切りで出力する
+endfor
+workArray の全ての要素 を先頭から順にコンマ区切りで出力する
+ア 性3ん5                  イ 12.3,5, 4
+ウ 58.2 1                 〒エ54ん3.2,. 1
+ー 82 ご
