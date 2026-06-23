@@ -44,7 +44,7 @@ const mockProfiles = {
   "basic-info": { label: "基本情報 公開サンプル", minutes: 190, questions: 26 },
   "applied-info": { label: "応用情報 午前", minutes: 150, questions: 80 },
   "officer-candidate": { label: "幹部候補生 一般教養・専門択一", minutes: 200, questions: null },
-  "officer-kyouyou": { label: "一般教養 本試験", minutes: 200, questions: null },
+  "officer-kyouyou": { label: "一般教養 本試験", minutes: 180, questions: null },
   "officer-senmon": { label: "専門択一 本試験", minutes: 110, questions: null },
 };
 
@@ -219,6 +219,14 @@ function isOfficerQuestion(question) {
   return question.packId?.startsWith("officer-");
 }
 
+function isQuestionUnavailable(question) {
+  return Boolean(question?.isCopyrightUnavailable || question?.unavailableReason);
+}
+
+function isAnswerableMockQuestion(question) {
+  return !isQuestionUnavailable(question) && Array.isArray(question?.choices) && question.choices.length > 0;
+}
+
 function getFilterSubject(question) {
   return question.subject;
 }
@@ -228,6 +236,19 @@ function getFilterCategory(question) {
 }
 
 function getQuizHeader(question) {
+  if (isOfficerQuestion(question)) {
+    const title = Number.isInteger(question.questionNumber) ? `問${question.questionNumber}` : question.prompt;
+    const meta = [
+      question.examTitle,
+      question.subject,
+      question.category,
+    ];
+    return {
+      title: title || question.prompt,
+      meta: uniqueCompactLabels(meta),
+    };
+  }
+
   const title = Number.isInteger(question.questionNumber) ? `問${question.questionNumber}` : question.prompt;
   const meta = [
     question.packLabel,
@@ -244,7 +265,7 @@ function getQuizHeader(question) {
 
 function formatDifficultyLabel(value) {
   if (!value) return "";
-  if (value.includes("AI推定解答")) return "AI推定解答";
+  if (value.includes("AI推定解答")) return "";
   if (value === "公式公開問題") return "";
   return value;
 }
@@ -584,7 +605,7 @@ function buildOfficerSelectionGroups(questions, selections = {}) {
         examId: question.examId ?? "",
         baseCategory: groupInfo.baseCategory,
         title: groupInfo.title,
-        subtitle: uniqueCompactLabels([getPack(question.packId)?.label, question.examTitle]).join(" / "),
+        subtitle: "",
         rule: groupInfo.rule,
         items: [],
       });
@@ -597,19 +618,20 @@ function buildOfficerSelectionGroups(questions, selections = {}) {
     });
   });
   return groups.map((group) => {
-    const answered = group.items.filter((item) => item.answered).length;
+    const answerableItems = group.items.filter((item) => isAnswerableMockQuestion(item.question));
+    const answered = group.items.filter((item) => item.answered && isAnswerableMockQuestion(item.question)).length;
     const englishRequiredCount = groups.find((candidate) =>
       candidate.packId === group.packId &&
       candidate.examId === group.examId &&
       candidate.baseCategory === "その1" &&
       candidate.rule?.kind === "required"
-    )?.items.length ?? 0;
+    )?.items.filter((item) => isAnswerableMockQuestion(item.question)).length ?? 0;
     const adjustedRule = group.packId === "officer-kyouyou" &&
       group.baseCategory === "その1" &&
       group.rule?.kind === "select"
       ? {
           ...group.rule,
-          target: Math.max(0, (group.rule.target ?? 0) - englishRequiredCount),
+          target: Math.min(answerableItems.length, Math.max(0, (group.rule.target ?? 0) - englishRequiredCount)),
           note: englishRequiredCount > 0
             ? `英語${englishRequiredCount}問は必答、残りから${Math.max(0, (group.rule.target ?? 0) - englishRequiredCount)}問選択`
             : group.rule.note,
@@ -619,8 +641,32 @@ function buildOfficerSelectionGroups(questions, selections = {}) {
       ...group,
       rule: adjustedRule,
       answered,
+      answerableCount: answerableItems.length,
     };
   });
+}
+
+function getMockRequiredAnswerCount(questions) {
+  const officerGroups = buildOfficerSelectionGroups(questions);
+  if (officerGroups.length > 0) {
+    return officerGroups.reduce((total, group) => total + (group.rule?.target ?? group.answerableCount), 0);
+  }
+  return questions.filter(isAnswerableMockQuestion).length;
+}
+
+function getOfficerSelectionState(questions, selections, question) {
+  if (!isOfficerQuestion(question)) return null;
+  const groups = buildOfficerSelectionGroups(questions, selections);
+  return groups.find((group) => group.items.some((item) => item.question.id === question.id)) ?? null;
+}
+
+function canSelectMockChoice(quiz, question) {
+  if (!quiz.examMode || !isOfficerQuestion(question)) return true;
+  if (!isAnswerableMockQuestion(question)) return false;
+  if (Number.isInteger(quiz.selections?.[question.id])) return true;
+  const group = getOfficerSelectionState(quiz.questions, quiz.selections, question);
+  const target = group?.rule?.target;
+  return !target || group.answered < target;
 }
 
 function getQuestionNavLabel(question, fallbackIndex) {
@@ -853,6 +899,7 @@ function App() {
       if (current.status !== "answering") return current;
       const question = current.questions[current.index];
       if (current.examMode) {
+        if (!canSelectMockChoice(current, question)) return current;
         return {
           ...current,
           selectedChoice: choiceIndex,
@@ -969,6 +1016,7 @@ function App() {
     setQuiz((current) => {
       if (!current.examMode || current.status !== "answering") return current;
       const submittedAt = Date.now();
+      const requiredAnswerCount = getMockRequiredAnswerCount(current.questions);
       const answers = current.questions.map((question) => {
         const choiceIndex = current.selections[question.id];
         const answered = Number.isInteger(choiceIndex);
@@ -1019,6 +1067,9 @@ function App() {
 
         const graded = answers.filter((answer) => answer.correct !== null);
         const correct = graded.filter((answer) => answer.correct).length;
+        const answered = answers.filter((answer) => !answer.unanswered).length;
+        const examTitle = uniqueCompactLabels(current.questions.map((question) => question.examTitle))[0] ?? "";
+        const packLabel = uniqueCompactLabels(current.questions.map((question) => getPack(question.packId)?.label ?? question.packId))[0] ?? "";
         return {
           ...currentProgress,
           history: history.slice(0, 500),
@@ -1028,12 +1079,20 @@ function App() {
               id: `${answeredAt}-mock`,
               date: answeredAt,
               mode: "mock",
-              total: graded.length,
+              total: requiredAnswerCount,
               correct,
+              graded: graded.length,
               questionCount: current.questions.length,
-              answered: answers.filter((answer) => !answer.unanswered).length,
+              requiredAnswerCount,
+              answered,
+              unanswered: Math.max(0, requiredAnswerCount - answered),
+              rate: requiredAnswerCount > 0 ? Math.round((correct / requiredAnswerCount) * 100) : 0,
               elapsedSeconds: Math.max(0, Math.floor((submittedAt - current.startedAt) / 1000)),
               reason,
+              packId: current.questions[0]?.packId ?? "",
+              packLabel,
+              examId: current.questions[0]?.examId ?? "",
+              examTitle,
             },
             ...(currentProgress.sessions ?? []),
           ].slice(0, 30),
@@ -1287,6 +1346,7 @@ function App() {
             <HistoryView
               entries={historyEntries}
               progress={progress}
+              sessions={progress.sessions}
               onPracticeQuestion={(question) => startQuestionSet([question], { mode: "weak" })}
               onPracticeExam={(question) =>
                 startQuiz({
@@ -1629,44 +1689,131 @@ function QuizWorkspace({
   }
 
   if (quiz.status === "complete") {
+    const requiredAnswerCount = quiz.examMode ? getMockRequiredAnswerCount(quiz.questions) : quiz.answers.length;
     const graded = quiz.answers.filter((answer) => answer.correct !== null);
     const correct = graded.filter((answer) => answer.correct).length;
     const ungraded = quiz.answers.length - graded.length;
     const unanswered = quiz.answers.filter((answer) => answer.unanswered).length;
-    const rate = graded.length > 0 ? Math.round((correct / graded.length) * 100) : 0;
+    const answered = quiz.answers.length - unanswered;
+    const scoreDenominator = quiz.examMode ? requiredAnswerCount : graded.length;
+    const requiredUnanswered = quiz.examMode ? Math.max(0, requiredAnswerCount - answered) : unanswered;
+    const rate = scoreDenominator > 0 ? Math.round((correct / scoreDenominator) * 100) : 0;
     const misses = quiz.answers.filter((answer) => answer.correct === false);
     const weakBuckets = misses.reduce((summary, answer) => {
       const key = `${getPack(answer.packId)?.label ?? answer.packId} ${answer.category}`;
       summary[key] = (summary[key] ?? 0) + 1;
       return summary;
     }, {});
+    const answerByQuestionId = new Map(quiz.answers.map((answer) => [answer.questionId, answer]));
 
     return (
-      <section className="quiz-card result-card" aria-label="結果">
-        <div className="result-ring" style={{ "--score-rate": `${rate}%` }}>
-          <span>{graded.length > 0 ? `${rate}%` : "記録"}</span>
-          <small>{graded.length > 0 ? `${correct}/${graded.length}` : `${ungraded}問`}</small>
-        </div>
-        <div className="result-copy">
-          <h2>{quiz.examMode ? "模試結果" : graded.length === 0 ? "選択を記録しました" : rate >= 80 ? "定着が進んでいます" : rate >= 60 ? "弱点を絞れています" : "復習対象を増やしましょう"}</h2>
-          <p>{quiz.examMode ? `回答 ${quiz.answers.length - unanswered}/${quiz.answers.length}問。未回答は採点対象外として記録しました。` : graded.length === 0 ? "この試験回は公式解答が未収録のため、正誤判定なしで演習回数だけ記録しました。" : "間違えた論点は復習に回せます。履歴から同じ試験回を再演習することもできます。"}</p>
-          <div className="weak-tags">
-            {Object.keys(weakBuckets).length === 0 ? <span>ミスなし</span> : Object.entries(weakBuckets).map(([key, count]) => <span key={key}>{key} {count}問</span>)}
+      <section className="mock-result-view" aria-label="結果">
+        <section className="quiz-card result-card" aria-label="採点サマリー">
+          <div className="result-ring" style={{ "--score-rate": `${rate}%` }}>
+            <span>{scoreDenominator > 0 ? `${rate}%` : "記録"}</span>
+            <small>{scoreDenominator > 0 ? `${correct}/${scoreDenominator}` : `${ungraded}問`}</small>
           </div>
-          <div className="result-actions">
-            <button className="primary-button" type="button" onClick={onReviewMisses}>復習</button>
+          <div className="result-copy">
+            <h2>{quiz.examMode ? "模試結果" : graded.length === 0 ? "選択を記録しました" : rate >= 80 ? "定着が進んでいます" : rate >= 60 ? "弱点を絞れています" : "復習対象を増やしましょう"}</h2>
+            <p>{quiz.examMode ? `回答 ${answered}/${requiredAnswerCount}問。正答率は提出が必要な問題数を分母にしています。` : graded.length === 0 ? "この試験回は公式解答が未収録のため、正誤判定なしで演習回数だけ記録しました。" : "間違えた論点は復習に回せます。履歴から同じ試験回を再演習することもできます。"}</p>
+            <div className="weak-tags">
+              {Object.keys(weakBuckets).length === 0 ? <span>ミスなし</span> : Object.entries(weakBuckets).map(([key, count]) => <span key={key}>{key} {count}問</span>)}
+            </div>
+            <div className="result-actions">
+              <button className="primary-button" type="button" onClick={onReviewMisses}>復習</button>
+            </div>
           </div>
-        </div>
+        </section>
+
+        <section className="quiz-card mock-result-list" aria-label="問題別の採点結果">
+          <div className="mock-result-heading">
+            <div>
+              <h3>問題別結果</h3>
+              <p>提出時の選択肢、正解、正誤を一覧できます。</p>
+            </div>
+            <div className="mock-result-counts" aria-label="採点内訳">
+              <span>正解 {correct}</span>
+              <span>不正解 {misses.length}</span>
+              <span>未回答 {requiredUnanswered}</span>
+              {quiz.examMode && <span>必要 {requiredAnswerCount}</span>}
+            </div>
+          </div>
+
+          <div className="mock-result-rows">
+            {quiz.questions.map((resultQuestion, index) => {
+              const answer = answerByQuestionId.get(resultQuestion.id);
+              const selectedIndex = answer?.choiceIndex;
+              const correctIndex = resultQuestion.answer;
+              const selectedLabel = Number.isInteger(selectedIndex)
+                ? resultQuestion.choiceLabels?.[selectedIndex] ?? String.fromCharCode(65 + selectedIndex)
+                : "";
+              const correctLabel = Number.isInteger(correctIndex)
+                ? resultQuestion.choiceLabels?.[correctIndex] ?? String.fromCharCode(65 + correctIndex)
+                : "";
+              const selectedChoice = Number.isInteger(selectedIndex)
+                ? resultQuestion.choices?.[selectedIndex]
+                : "";
+              const correctChoice = Number.isInteger(correctIndex)
+                ? resultQuestion.choices?.[correctIndex]
+                : "";
+              const resultLabel = answer?.unanswered
+                ? "未回答"
+                : answer?.correct === null
+                  ? "採点対象外"
+                  : answer?.correct
+                    ? "正解"
+                    : "不正解";
+              const promptPreview = getHistoryQuestionPreview(resultQuestion);
+              const rowClassName = [
+                "mock-result-row",
+                answer?.correct === false ? "missed" : "",
+                answer?.unanswered ? "unanswered" : "",
+                answer?.correct === null && !answer?.unanswered ? "ungraded" : "",
+              ].filter(Boolean).join(" ");
+
+              return (
+                <article className={rowClassName} key={resultQuestion.id}>
+                  <div className="mock-result-status">
+                    <span>{resultLabel}</span>
+                    <small>問{resultQuestion.questionNumber ?? index + 1}</small>
+                  </div>
+                  <div className="mock-result-question">
+                    <div className="question-tags">
+                      <span>{resultQuestion.packLabel}</span>
+                      {resultQuestion.examTitle && <span>{resultQuestion.examTitle}</span>}
+                      <span>{resultQuestion.category}</span>
+                    </div>
+                    <h3>{resultQuestion.prompt}</h3>
+                    {promptPreview && <p className="history-question-preview">{promptPreview}</p>}
+                    <div className="history-answer-grid">
+                      <div className={answer?.correct === false ? "history-answer selected wrong" : "history-answer selected"}>
+                        <span>あなたの選択 {selectedLabel || "-"}</span>
+                        <strong>{selectedChoice ? <FormattedInline text={selectedChoice} /> : answer?.unanswered ? "未回答" : "未記録"}</strong>
+                      </div>
+                      <div className="history-answer correct">
+                        <span>正解 {correctLabel || "-"}</span>
+                        <strong>{correctChoice ? <FormattedInline text={correctChoice} /> : "未収録"}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
       </section>
     );
   }
 
   const reveal = quiz.status === "correct" || quiz.status === "incorrect" || quiz.status === "ungraded";
   const hasAnswer = Number.isInteger(question.answer);
-  const sourceImages = question.images?.length ? question.images : question.image ? [question.image] : [];
+  const unavailable = isQuestionUnavailable(question);
+  const sourceImages = unavailable ? [] : question.images?.length ? question.images : question.image ? [question.image] : [];
   const quizHeader = getQuizHeader(question);
-  const aiAnswerModel = getAiAnswerModel(question);
   const answeredCount = Object.keys(quiz.selections ?? {}).length;
+  const requiredAnswerCount = quiz.examMode ? getMockRequiredAnswerCount(quiz.questions) : quiz.questions.length;
+  const selectionGroup = quiz.examMode ? getOfficerSelectionState(quiz.questions, quiz.selections, question) : null;
+  const selectionLimitReached = quiz.examMode && isAnswerableMockQuestion(question) && !canSelectMockChoice(quiz, question);
   const mockTimeLabel = secondsRemaining === null ? "" : formatDuration(secondsRemaining);
   const mockNearlyDone = secondsRemaining !== null && secondsRemaining <= 300;
   const showOfficerNavigator = quiz.examMode && quiz.questions.some(isOfficerQuestion);
@@ -1684,8 +1831,14 @@ function QuizWorkspace({
 
       <QuestionText question={question} />
 
-      <div className="choices" role="list">
-        {question.choices.map((choice, index) => {
+      {unavailable ? (
+        <div className="unavailable-question-note" role="note">
+          <strong>回答対象外</strong>
+          <span>著作権の関係により、この問題の本文・選択肢・公式画像は表示できません。</span>
+        </div>
+      ) : (
+        <div className="choices" role="list">
+          {question.choices.map((choice, index) => {
           const isCorrect = hasAnswer && index === question.answer;
           const isSelected = quiz.selectedChoice === index;
           const className = [
@@ -1701,7 +1854,7 @@ function QuizWorkspace({
               className={className}
               type="button"
               key={`${question.id}-${index}`}
-              disabled={!quiz.examMode && quiz.status !== "answering"}
+              disabled={selectionLimitReached || (!quiz.examMode && quiz.status !== "answering")}
               onClick={() => onAnswer(index)}
               role="listitem"
             >
@@ -1714,8 +1867,15 @@ function QuizWorkspace({
               {reveal && isSelected && !isCorrect && hasAnswer && <X aria-hidden="true" size={17} />}
             </button>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
+
+      {selectionLimitReached && (
+        <p className="mock-selection-limit">
+          {selectionGroup?.title ?? "この区分"}は指定数の{selectionGroup?.rule?.target ?? 0}問に達しています。回答を変更する場合は、回答済みの問題に戻って選択肢を選び直してください。
+        </p>
+      )}
 
       {sourceImages.length > 0 && (
         <details className="source-image-panel">
@@ -1745,9 +1905,6 @@ function QuizWorkspace({
         <div className={`feedback ${quiz.status}`}>
           <div>
             <strong>{quiz.status === "correct" ? "正解です" : quiz.status === "ungraded" ? "選択を記録しました" : "惜しいです"}</strong>
-            {aiAnswerModel && (
-              <span className="answer-source-badge">AI推定回答: {aiAnswerModel}</span>
-            )}
             <ExplanationText text={question.explanation} />
           </div>
         </div>
@@ -1764,9 +1921,9 @@ function QuizWorkspace({
             <strong>{mockTimeLabel}</strong>
           </div>
           <div className="mock-progress">
-            <span>回答 {answeredCount}/{quiz.questions.length}</span>
+            <span>回答 {answeredCount}/{requiredAnswerCount}</span>
             <div className="progress-track slim">
-              <span style={{ width: `${quiz.questions.length > 0 ? (answeredCount / quiz.questions.length) * 100 : 0}%` }} />
+              <span style={{ width: `${requiredAnswerCount > 0 ? Math.min(100, (answeredCount / requiredAnswerCount) * 100) : 0}%` }} />
             </div>
           </div>
           <button className="primary-button compact" type="button" onClick={() => onSubmitMock("manual")}>
@@ -1827,18 +1984,20 @@ function OfficerQuestionNavigator({ quiz, onJump }) {
       <div className="officer-nav-legend" aria-label="表示凡例">
         <span><i className="legend-current" />表示中</span>
         <span><i className="legend-answered" />回答済み</span>
+        <span><i className="legend-unavailable" />表示不可</span>
       </div>
       <div className="officer-nav-groups">
         {groups.map((group) => {
           const target = group.rule?.target;
-          const complete = target ? group.answered >= target : group.answered === group.items.length;
-          const statusLabel = target ? `${group.answered}/${target}` : `${group.answered}/${group.items.length}`;
+          const required = target ?? group.answerableCount;
+          const complete = required > 0 && group.answered >= required;
+          const statusLabel = `${group.answered}/${required}`;
           return (
             <section className={complete ? "officer-nav-group complete" : "officer-nav-group"} key={group.key}>
               <div className="officer-nav-group-head">
                 <div>
                   <strong>{group.title}</strong>
-                  <span>{group.subtitle}</span>
+                  {group.subtitle && <span>{group.subtitle}</span>}
                 </div>
                 <div className={group.rule?.kind === "required" ? "officer-rule required" : "officer-rule"}>
                   <b>{group.rule?.label ?? "区分"}</b>
@@ -1849,6 +2008,7 @@ function OfficerQuestionNavigator({ quiz, onJump }) {
               <div className="officer-question-grid">
                 {group.items.map(({ question, index, answered }) => {
                   const selected = index === quiz.index;
+                  const unavailable = isQuestionUnavailable(question);
                   return (
                     <button
                       className={[
@@ -1856,11 +2016,12 @@ function OfficerQuestionNavigator({ quiz, onJump }) {
                         "officer-grid-button",
                         selected ? "current" : "",
                         answered ? "answered" : "",
+                        unavailable ? "unavailable" : "",
                       ].filter(Boolean).join(" ")}
                       type="button"
                       key={question.id}
                       onClick={() => onJump(index)}
-                      aria-label={`${group.title} 問${getQuestionNavLabel(question, index)}`}
+                      aria-label={`${group.title} 問${getQuestionNavLabel(question, index)}${unavailable ? " 表示不可" : ""}`}
                     >
                       {getQuestionNavLabel(question, index)}
                     </button>
@@ -1873,18 +2034,6 @@ function OfficerQuestionNavigator({ quiz, onJump }) {
       </div>
     </aside>
   );
-}
-
-function getAiAnswerModel(question) {
-  const answerSource = String(question.answerSource || "");
-  const sourceMatch = answerSource.match(/^llm:(.+)$/);
-  if (sourceMatch) return sourceMatch[1];
-  const history = Array.isArray(question.processingHistory) ? question.processingHistory : [];
-  const answerHistory = [...history].reverse().find((item) =>
-    item?.stage === "answer_generation" && item.model
-  );
-  if (answerHistory?.model) return String(answerHistory.model);
-  return "";
 }
 
 function ExplanationText({ text }) {
@@ -1941,6 +2090,9 @@ function QuestionText({ question }) {
 }
 
 function getDisplayQuestionText(question) {
+  if (isQuestionUnavailable(question)) {
+    return `問${question.questionNumber ?? ""}\n${question.unavailableReason ?? "この問題は著作権の関係により表示できません。"}`.trim();
+  }
   const sourceText = question.transcription?.markdown || question.transcription?.text || question.transcription?.rawText || "";
   if (question.packId?.startsWith("officer-")) {
     return removeOfficerQuestionNumber(removeChoiceText(stripInlineMarkdown(sourceText), question.choiceLabels));
@@ -2450,7 +2602,8 @@ function ReviewView({ candidates, summary, onStartReview, onPracticeQuestion }) 
   );
 }
 
-function HistoryView({ entries, progress, onPracticeQuestion, onPracticeExam }) {
+function HistoryView({ entries, progress, sessions, onPracticeQuestion, onPracticeExam }) {
+  const mockSessions = (sessions ?? []).filter((session) => session.mode === "mock");
   return (
     <section className="history-view">
       <div className="view-heading">
@@ -2459,6 +2612,46 @@ function HistoryView({ entries, progress, onPracticeQuestion, onPracticeExam }) 
           <p>最近解いた問題、結果、選択肢、同じ問題への復習導線を確認できます。</p>
         </div>
       </div>
+
+      <section className="mock-history-panel">
+        <div className="mock-history-heading">
+          <h3>模試受験履歴</h3>
+          <span>{mockSessions.length}回</span>
+        </div>
+        {mockSessions.length === 0 ? (
+          <p className="empty-text">模試を提出すると、受験日時、得点、回答数がここに残ります。</p>
+        ) : (
+          <div className="mock-history-list">
+            {mockSessions.slice(0, 10).map((session) => {
+              const total = session.requiredAnswerCount ?? session.total ?? session.questionCount ?? 0;
+              const rate = Number.isInteger(session.rate)
+                ? session.rate
+                : total > 0
+                  ? Math.round((session.correct / total) * 100)
+                  : 0;
+              const answered = session.answered ?? 0;
+              return (
+                <article className="mock-history-row" key={session.id}>
+                  <div>
+                    <span>{formatDateTime(session.date)}</span>
+                    <strong>{session.examTitle || session.packLabel || "模試"}</strong>
+                    {session.packLabel && session.examTitle && <small>{session.packLabel}</small>}
+                  </div>
+                  <div className="mock-history-score">
+                    <strong>{rate}%</strong>
+                    <span>{session.correct}/{total}</span>
+                  </div>
+                  <div className="mock-history-meta">
+                    <span>回答 {answered}/{total}</span>
+                    <span>{formatDuration(session.elapsedSeconds ?? 0)}</span>
+                    <span>{session.reason === "timeup" ? "時間切れ" : "提出"}</span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <div className="history-timeline">
         {entries.length === 0 ? (

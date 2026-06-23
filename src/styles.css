@@ -1015,6 +1015,17 @@ input:focus {
   gap: 6px;
 }
 
+.question-meta {
+  gap: 8px;
+}
+
+.question-meta span {
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
 .question-text-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1153,6 +1164,27 @@ input:focus {
 .choices {
   display: grid;
   gap: 8px;
+}
+
+.unavailable-question-note {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid #d6c7a3;
+  border-radius: 8px;
+  background: #fff9e8;
+  color: #5f4c22;
+}
+
+.unavailable-question-note strong {
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.unavailable-question-note span {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.55;
 }
 
 .question-image-frame {
@@ -1352,6 +1384,11 @@ input:focus {
   background: #edf9f3;
 }
 
+.officer-nav-legend .legend-unavailable {
+  border-color: #d6c7a3;
+  background: #fff7df;
+}
+
 .officer-nav-groups {
   display: grid;
   gap: 10px;
@@ -1438,6 +1475,12 @@ input:focus {
   border-radius: 7px;
 }
 
+.officer-grid-button.unavailable {
+  border-color: #d6c7a3;
+  background: #fff7df;
+  color: #7b6533;
+}
+
 .quiz-actions,
 .result-actions {
   display: flex;
@@ -1511,19 +1554,16 @@ button kbd {
   line-height: 1.35;
 }
 
-.answer-source-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  margin-top: 8px;
-  padding: 0 8px;
-  border: 1px solid rgba(65, 96, 106, 0.18);
+.mock-selection-limit {
+  margin: -4px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #ead8a8;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.62);
-  color: #5e737a;
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1;
+  background: #fff9e8;
+  color: #80631f;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.65;
 }
 
 .explanation-text {
@@ -1577,6 +1617,11 @@ button kbd {
   align-items: center;
 }
 
+.mock-result-view {
+  display: grid;
+  gap: 18px;
+}
+
 .result-ring {
   display: grid;
   place-items: center;
@@ -1613,6 +1658,113 @@ button kbd {
 .empty-card p {
   color: var(--muted);
   line-height: 1.75;
+}
+
+.mock-result-list {
+  gap: 18px;
+}
+
+.mock-result-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mock-result-heading h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 22px;
+}
+
+.mock-result-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.mock-result-counts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mock-result-counts span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: #f4f8f9;
+  color: #516a73;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mock-result-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.mock-result-row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.mock-result-row.missed {
+  border-color: #f1cdc8;
+  background: #fffafa;
+}
+
+.mock-result-row.unanswered,
+.mock-result-row.ungraded {
+  background: #fbfcfc;
+}
+
+.mock-result-status {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  text-align: right;
+}
+
+.mock-result-status span {
+  color: var(--green-dark);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.mock-result-row.missed .mock-result-status span {
+  color: var(--red);
+}
+
+.mock-result-row.unanswered .mock-result-status span,
+.mock-result-row.ungraded .mock-result-status span {
+  color: var(--muted);
+}
+
+.mock-result-status small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mock-result-question {
+  min-width: 0;
+}
+
+.mock-result-question h3 {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.45;
 }
 
 .empty-card {
@@ -1746,6 +1898,87 @@ button kbd {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
+}
+
+.mock-history-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fbfc;
+}
+
+.mock-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mock-history-heading h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.mock-history-heading span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mock-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mock-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 210px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.mock-history-row > div:first-child,
+.mock-history-meta,
+.mock-history-score {
+  display: grid;
+  gap: 4px;
+}
+
+.mock-history-row span,
+.mock-history-row small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mock-history-row strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1.45;
+}
+
+.mock-history-score {
+  text-align: right;
+}
+
+.mock-history-score strong {
+  color: var(--green-dark);
+  font-size: 24px;
 }
 
 .history-question-preview {
@@ -2178,13 +2411,16 @@ button kbd {
   .question-row,
   .review-row,
   .history-row,
+  .mock-history-row,
   .weak-row.full {
     grid-template-columns: 1fr;
   }
 
   .row-status,
   .review-score,
-  .history-result {
+  .history-result,
+  .mock-history-score,
+  .mock-result-status {
     text-align: left;
   }
 
@@ -2202,13 +2438,19 @@ button kbd {
     order: -1;
   }
 
-  .result-card {
+  .result-card,
+  .mock-result-row {
     grid-template-columns: 1fr;
   }
 
   .view-heading,
+  .mock-result-heading,
   .feedback {
     flex-direction: column;
+  }
+
+  .mock-result-counts {
+    justify-content: flex-start;
   }
 }
 

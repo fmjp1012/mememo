@@ -78,6 +78,10 @@ function normalizeQuestion(question) {
   ].filter(Boolean).join(" ");
   return {
     ...question,
+    isCopyrightUnavailable: hasUnavailableCopyrightText(question),
+    unavailableReason: hasUnavailableCopyrightText(question)
+      ? "この問題は著作権の関係により問題文を表示できません。"
+      : question.unavailableReason,
     packLabel: pack?.label ?? question.packId,
     searchText: `${pack?.label ?? question.packId} ${question.subject} ${question.category} ${question.difficulty} ${question.prompt} ${question.source ?? ""} ${question.searchText ?? ""} ${transcriptionText}`.toLowerCase(),
   };
@@ -111,16 +115,20 @@ function isUsableQuestion(question) {
   if (officerCandidatePackIds.includes(question.packId) && !latestOfficerExamIds.has(question.examId)) {
     return false;
   }
-  if (officerCandidatePackIds.includes(question.packId) && !Number.isInteger(question.answer)) {
+  const isCopyrightUnavailable = hasUnavailableCopyrightText(question);
+  if (officerCandidatePackIds.includes(question.packId) && !Number.isInteger(question.answer) && !isCopyrightUnavailable) {
     return false;
   }
+  return !isCopyrightUnavailable || officerCandidatePackIds.includes(question.packId);
+}
+
+function hasUnavailableCopyrightText(question) {
   const text = [
     question.transcription?.rawText,
     question.transcription?.text,
     question.transcription?.markdown,
   ].filter(Boolean).join("\n");
-  const hasUnavailableCopyrightText = /著作権の関係[^。\n]*(掲載できません|掲載できない)/.test(text);
-  return !hasUnavailableCopyrightText;
+  return /著作権の関係[^。\n]*(掲載できません|掲載できない)/.test(text);
 }
 
 export const defaultEnabledPacks = learningPacks.map((pack) => pack.id);
