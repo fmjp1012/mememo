@@ -102,10 +102,10 @@ const DEFAULT_DAILY_NEW_QUESTION_LIMIT = 12;
 const UNLIMITED_DAILY_NEW_QUESTIONS = "unlimited";
 const dailyNewQuestionLimitOptions = [5, 10, 12, 20, 30, 50, 100, UNLIMITED_DAILY_NEW_QUESTIONS];
 const reviewRatingOptions = [
-  { id: "again", label: "もう一度", intervalLabel: "1分" },
-  { id: "hard", label: "難しい", intervalLabel: "1日" },
-  { id: "good", label: "できた", intervalLabel: "3日" },
-  { id: "easy", label: "簡単", intervalLabel: "7日" },
+  { id: "again", label: "もう一度", intervalLabel: "1分", shortcutKey: "1" },
+  { id: "hard", label: "難しい", intervalLabel: "1日", shortcutKey: "2" },
+  { id: "good", label: "できた", intervalLabel: "3日", shortcutKey: "3" },
+  { id: "easy", label: "簡単", intervalLabel: "7日", shortcutKey: "4" },
 ];
 
 const mockProfiles = {
@@ -1839,9 +1839,11 @@ function App() {
         if (quiz.status === "answering" && currentQuestion?.choices?.[choiceIndex] != null) {
           event.preventDefault();
           answerQuestion(choiceIndex);
-        } else if (quiz.dailyMode && choiceIndex < reviewRatingOptions.length) {
+        } else if (quiz.dailyMode) {
+          const reviewRating = reviewRatingOptions.find((option) => option.shortcutKey === key);
+          if (!reviewRating) return;
           event.preventDefault();
-          rateDailyQuestion(reviewRatingOptions[choiceIndex].id);
+          rateDailyQuestion(reviewRating.id);
         }
         return;
       }
@@ -3315,9 +3317,9 @@ function QuizWorkspace({
             <span>選ぶと次のカードへ進みます</span>
           </div>
           <div className="review-rating-options">
-            {reviewRatingOptions.map((option, index) => (
-              <button className={`review-rating ${option.id}`} type="button" key={option.id} onClick={() => onRateReview(option.id)} aria-keyshortcuts={String(index + 1)}>
-                <kbd aria-hidden="true">{index + 1}</kbd>
+            {reviewRatingOptions.map((option) => (
+              <button className={`review-rating ${option.id}`} type="button" key={option.id} onClick={() => onRateReview(option.id)} aria-keyshortcuts={option.shortcutKey}>
+                <kbd aria-hidden="true">{option.shortcutKey}</kbd>
                 <strong>{option.label}</strong>
                 <span>{option.intervalLabel}</span>
               </button>

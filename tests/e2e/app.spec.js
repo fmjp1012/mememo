@@ -80,6 +80,26 @@ test("問題演習をキーボードショートカットで操作できる", as
   expect(runtimeErrors).toEqual([]);
 });
 
+test("今日の学習は手応えを数字キーで選択できる", async ({ page }) => {
+  const runtimeErrors = watchRuntimeErrors(page);
+  await mockAuthProviders(page);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "今日の学習を始める" }).click();
+  await expect(page.locator(".daily-study-status strong")).toHaveText("1 / 12");
+
+  await page.keyboard.press("1");
+  const ratingPanel = page.getByRole("region", { name: "次の復習日を選択" });
+  await expect(ratingPanel).toBeVisible();
+  await expect(ratingPanel.getByRole("button", { name: /もう一度/ })).toHaveAttribute("aria-keyshortcuts", "1");
+  await expect(ratingPanel.getByRole("button", { name: /簡単/ })).toHaveAttribute("aria-keyshortcuts", "4");
+
+  await page.keyboard.press("4");
+  await expect(ratingPanel).toHaveCount(0);
+  await expect(page.locator(".daily-study-status strong")).toHaveText("2 / 12");
+  expect(runtimeErrors).toEqual([]);
+});
+
 test("無効なOAuthプロバイダーを表示せず、メールログインを維持する", async ({ page }) => {
   const runtimeErrors = watchRuntimeErrors(page);
   await mockAuthProviders(page);
