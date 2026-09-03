@@ -1824,7 +1824,7 @@ function App() {
         return;
       }
 
-      if (key === "/") {
+      if (key === "/" && activeView === "quiz") {
         event.preventDefault();
         setShortcutHelpOpen((open) => !open);
         return;
@@ -1980,7 +1980,7 @@ function App() {
 
   return (
     <div className={isFocusMode ? "app-shell focus-mode" : "app-shell"}>
-      {shortcutHelpOpen && <ShortcutHelpDialog onClose={() => setShortcutHelpOpen(false)} />}
+      {shortcutHelpOpen && <ShortcutHelpDialog quiz={quiz} onClose={() => setShortcutHelpOpen(false)} />}
       {authDialogOpen && (
         <AuthDialog
           initialMode={authDialogMode}
@@ -3266,11 +3266,13 @@ function QuizWorkspace({
               disabled={selectionLimitReached || (!quiz.examMode && quiz.status !== "answering")}
               onClick={() => onAnswer(index)}
               role="listitem"
+              aria-keyshortcuts={String(index + 1)}
             >
               <span className="choice-index">{question.choiceLabels?.[index] ?? String.fromCharCode(65 + index)}</span>
               <span>
                 <FormattedInline text={choice} />
               </span>
+              <kbd className="choice-shortcut" aria-hidden="true">{index + 1}</kbd>
               {reveal && isCorrect && <Check aria-hidden="true" size={17} />}
               {reveal && isSelected && !isCorrect && hasAnswer && <X aria-hidden="true" size={17} />}
             </button>
@@ -3313,8 +3315,9 @@ function QuizWorkspace({
             <span>選ぶと次のカードへ進みます</span>
           </div>
           <div className="review-rating-options">
-            {reviewRatingOptions.map((option) => (
-              <button className={`review-rating ${option.id}`} type="button" key={option.id} onClick={() => onRateReview(option.id)}>
+            {reviewRatingOptions.map((option, index) => (
+              <button className={`review-rating ${option.id}`} type="button" key={option.id} onClick={() => onRateReview(option.id)} aria-keyshortcuts={String(index + 1)}>
+                <kbd aria-hidden="true">{index + 1}</kbd>
                 <strong>{option.label}</strong>
                 <span>{option.intervalLabel}</span>
               </button>
@@ -3336,14 +3339,14 @@ function QuizWorkspace({
                 この問題を報告
               </button>
             )}
-            <button className="shortcut-help-hint" type="button" onClick={() => onOpenShortcutHelp()}>
+            <button className="shortcut-help-hint" type="button" onClick={() => onOpenShortcutHelp()} aria-keyshortcuts="/">
               <kbd>/</kbd>
               ショートカット
             </button>
-            <button className="secondary-button compact" type="button" onClick={onPrevious} disabled={quiz.index === 0}>
+            <button className="secondary-button compact" type="button" onClick={onPrevious} disabled={quiz.index === 0} aria-keyshortcuts="P">
               前へ <kbd>P</kbd>
             </button>
-            <button className="primary-button compact" type="button" onClick={onNext} disabled={(quiz.examMode || quiz.guidedPractice) && quiz.index === quiz.questions.length - 1}>
+            <button className="primary-button compact" type="button" onClick={onNext} disabled={(quiz.examMode || quiz.guidedPractice) && quiz.index === quiz.questions.length - 1} aria-keyshortcuts="N">
               次へ <kbd>N</kbd>
             </button>
           </div>
@@ -4147,9 +4150,12 @@ function SupportDialog({ request, user, onClose }) {
   );
 }
 
-function ShortcutHelpDialog({ onClose }) {
+function ShortcutHelpDialog({ quiz, onClose }) {
+  const currentQuestion = quiz.questions?.[quiz.index];
+  const choiceCount = Math.min(currentQuestion?.choices?.length ?? 0, choiceShortcutKeys.length);
+  const reviewingDailyAnswer = quiz.dailyMode && ["correct", "incorrect", "ungraded"].includes(quiz.status);
   const shortcuts = [
-    { key: "1-8", action: "選択肢を選ぶ" },
+    { key: reviewingDailyAnswer ? "1-4" : choiceCount > 0 ? `1-${choiceCount}` : "1-8", action: reviewingDailyAnswer ? "次の復習間隔を選ぶ" : "選択肢を選ぶ" },
     { key: "N", action: "次の問題へ進む" },
     { key: "P", action: "前の問題へ戻る" },
     { key: "/", action: "ショートカット一覧を開く/閉じる" },

@@ -55,6 +55,31 @@ test("トップページと主要導線が表示され、実行時エラーが�
   expect(runtimeErrors).toEqual([]);
 });
 
+test("問題演習をキーボードショートカットで操作できる", async ({ page }) => {
+  const runtimeErrors = watchRuntimeErrors(page);
+  await mockAuthProviders(page);
+
+  await page.goto("/");
+  await page.keyboard.press("/");
+  await expect(page.getByRole("dialog", { name: "キーボードショートカット" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "問題", exact: true }).click();
+
+  const firstChoice = page.getByRole("listitem").first();
+  await expect(firstChoice).toBeVisible();
+  await expect(firstChoice).toHaveAttribute("aria-keyshortcuts", "1");
+
+  await page.keyboard.press("/");
+  await expect(page.getByRole("dialog", { name: "ショートカット" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "ショートカット" })).toHaveCount(0);
+
+  await page.keyboard.press("1");
+  await expect(page.locator(".feedback")).toBeVisible();
+  await expect(page.getByRole("button", { name: /次へ/ })).toHaveAttribute("aria-keyshortcuts", "N");
+  expect(runtimeErrors).toEqual([]);
+});
+
 test("無効なOAuthプロバイダーを表示せず、メールログインを維持する", async ({ page }) => {
   const runtimeErrors = watchRuntimeErrors(page);
   await mockAuthProviders(page);
