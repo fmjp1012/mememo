@@ -228,9 +228,44 @@ def append_history(question: dict, *, previous_image: str, next_image: str, page
             "outputImage": next_image,
             "page": page,
             "markerText": marker.text[:160],
+            "marker": {
+                "numberText": marker.number_text,
+                "left": marker.left,
+                "top": marker.top,
+                "bottom": marker.bottom,
+                "pageIndex": marker.page_index,
+            },
             "status": "updated",
         }
     )
+
+
+def latest_solver_input_image(question: dict) -> str | None:
+    for item in reversed(question.get("processingHistory") or []):
+        if item.get("tool") == "scripts/solve_officer_questions.py" and item.get("inputImage"):
+            return str(item.get("inputImage"))
+    return None
+
+
+def mark_stale_if_needed(question: dict, *, previous_image: str, next_image: str) -> None:
+    solver_input = latest_solver_input_image(question)
+    if not solver_input or solver_input == next_image:
+        return
+    if solver_input != previous_image:
+        return
+    note = (
+        "Image was repaired after answer generation; rerun transcription/answer "
+        "for this question before treating the answer as final."
+    )
+    question["needsAnswerReview"] = True
+    notes = question.setdefault("answerReviewNotes", [])
+    if note not in notes:
+        notes.append(note)
+    transcription = question.setdefault("transcription", {})
+    transcription["needsReview"] = True
+    review_notes = transcription.setdefault("reviewNotes", [])
+    if note not in review_notes:
+        review_notes.append(note)
 
 
 def repair_questions_for_part(part, questions: list[dict], builder, apply: bool) -> dict:
@@ -274,6 +309,7 @@ def repair_questions_for_part(part, questions: list[dict], builder, apply: bool)
                 page=marker.page_index,
                 marker=marker,
             )
+            mark_stale_if_needed(question, previous_image=previous_image, next_image=next_image)
         updated += 1
         updated_ids.append(question.get("id", ""))
     return {

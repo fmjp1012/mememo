@@ -35,6 +35,76 @@ def is_copyright_blocked(question: dict) -> bool:
     return bool(re.search(r"著作権の関係[^。\n]*(掲載できません|掲載できない)", joined_text(question)))
 
 
+def is_generic_choices(question: dict) -> bool:
+    return (question.get("choices") or []) == ["1", "2", "3", "4", "5"]
+
+
+def has_placeholder_choices(question: dict) -> bool:
+    choices = question.get("choices") or []
+    return len(choices) == 5 and all("選択肢は画像に含まれていません" in str(choice) for choice in choices)
+
+
+def extract_numbered_choices(text: str) -> list[str]:
+    markers = list(re.finditer(r"(?m)^[ \t　]*[（(]([1-5])[）)][ \t　]*", text or ""))
+    if [marker.group(1) for marker in markers] != ["1", "2", "3", "4", "5"]:
+        return []
+    choices = []
+    for index, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        value = re.sub(r"\s+", " ", text[start:end]).strip()
+        if not value:
+            return []
+        choices.append(value)
+    return choices
+
+
+def has_recoverable_embedded_choices(question: dict) -> bool:
+    return is_generic_choices(question) and len(extract_numbered_choices(joined_text(question))) == 5
+
+
+def latest_solver_input_image(question: dict) -> str | None:
+    for item in reversed(question.get("processingHistory") or []):
+        if item.get("tool") == "scripts/solve_officer_questions.py" and item.get("inputImage"):
+            return str(item.get("inputImage"))
+    return None
+
+
+def has_image_repair_after_solver(question: dict) -> bool:
+    history = question.get("processingHistory") or []
+    solver_index = None
+    for index, item in enumerate(history):
+        if item.get("tool") == "scripts/solve_officer_questions.py" and item.get("inputImage"):
+            solver_index = index
+    if solver_index is None:
+        return False
+    return any(
+        item.get("tool") == "scripts/repair_officer_question_images.py"
+        and item.get("status") == "updated"
+        for item in history[solver_index + 1 :]
+    )
+
+
+def has_stale_solver_image(question: dict) -> bool:
+    current_image = str(question.get("image") or "")
+    solver_input = latest_solver_input_image(question)
+    if not current_image or not solver_input or current_image == solver_input:
+        return False
+    if not has_image_repair_after_solver(question):
+        return False
+    history = question.get("processingHistory") or []
+    latest_repair_index = None
+    for index, item in enumerate(history):
+        if item.get("tool") == "scripts/repair_officer_question_images.py" and item.get("status") == "updated":
+            latest_repair_index = index
+    if latest_repair_index is None:
+        return False
+    for item in history[latest_repair_index + 1 :]:
+        if item.get("inputImage") == current_image and item.get("stage") in {"answer_generation", "manual_data_repair"}:
+            return False
+    return True
+
+
 def bucket_questions(questions: list[dict]) -> dict[str, list[dict]]:
     visible = [question for question in questions if not is_copyright_blocked(question)]
     practice_visible = [question for question in visible if isinstance(question.get("answer"), int)]
@@ -44,7 +114,10 @@ def bucket_questions(questions: list[dict]) -> dict[str, list[dict]]:
         "copyright_blocked": [question for question in questions if is_copyright_blocked(question)],
         "missing_images": [question for question in visible if not (ROOT / "public" / str(question.get("image", "")).lstrip("/")).exists()],
         "bad_choice_count": [question for question in visible if len(question.get("choices") or []) != 5],
-        "generic_choices": [question for question in visible if (question.get("choices") or []) == ["1", "2", "3", "4", "5"]],
+        "generic_choices": [question for question in visible if is_generic_choices(question)],
+        "embedded_choices_recoverable": [question for question in visible if has_recoverable_embedded_choices(question)],
+        "placeholder_choices": [question for question in visible if has_placeholder_choices(question)],
+        "stale_after_image_repair": [question for question in visible if has_stale_solver_image(question)],
         "page_fallbacks": [question for question in visible if "/pages/" in str(question.get("image") or "")],
         "no_answer": [question for question in visible if not isinstance(question.get("answer"), int)],
         "answer_review": [question for question in visible if question.get("needsAnswerReview")],
@@ -58,6 +131,9 @@ def summarize(questions: list[dict], buckets: dict[str, list[dict]]) -> dict:
         "crops": 0,
         "pageFallbacks": 0,
         "genericChoices": 0,
+        "staleAfterImageRepair": 0,
+        "embeddedChoicesRecoverable": 0,
+        "placeholderChoices": 0,
         "noAnswer": 0,
         "answerReview": 0,
         "copyrightBlocked": 0,
@@ -77,6 +153,12 @@ def summarize(questions: list[dict], buckets: dict[str, list[dict]]) -> dict:
             by_exam[exam]["pageFallbacks"] += 1
         if (question.get("choices") or []) == ["1", "2", "3", "4", "5"]:
             by_exam[exam]["genericChoices"] += 1
+        if has_stale_solver_image(question):
+            by_exam[exam]["staleAfterImageRepair"] += 1
+        if has_recoverable_embedded_choices(question):
+            by_exam[exam]["embeddedChoicesRecoverable"] += 1
+        if has_placeholder_choices(question):
+            by_exam[exam]["placeholderChoices"] += 1
         if not isinstance(question.get("answer"), int):
             by_exam[exam]["noAnswer"] += 1
         else:
@@ -93,7 +175,15 @@ def summarize(questions: list[dict], buckets: dict[str, list[dict]]) -> dict:
 def write_targets(prefix: str, buckets: dict[str, list[dict]]) -> dict[str, str]:
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, str] = {}
-    for name in ["generic_choices", "page_fallbacks", "no_answer", "answer_review"]:
+    for name in [
+        "generic_choices",
+        "embedded_choices_recoverable",
+        "placeholder_choices",
+        "stale_after_image_repair",
+        "page_fallbacks",
+        "no_answer",
+        "answer_review",
+    ]:
         path = TMP_DIR / f"{prefix}-{name.replace('_', '-')}.txt"
         ids = [question["id"] for question in buckets[name]]
         path.write_text("\n".join(ids) + ("\n" if ids else ""), encoding="utf-8")

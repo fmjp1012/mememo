@@ -172,6 +172,23 @@ def main() -> None:
                 question["originalImageResource"] = question.get("originalImageResource") or question.get("imageResource")
                 question["image"] = f"/{out_rel}"
                 question["imageResource"] = out_rel
+                question.setdefault("processingHistory", []).append(
+                    {
+                        "stage": "image_crop",
+                        "tool": "scripts/crop_latest_itpass_questions.py",
+                        "mode": "local-ocr-question-marker-crop",
+                        "inputImage": f"/itpass/pages/{exam_id}/{image_path.name}",
+                        "outputImage": f"/{out_rel}",
+                        "questionNumber": number,
+                        "marker": {
+                            "number": marker.get("number"),
+                            "left": marker.get("left"),
+                            "top": marker.get("top"),
+                            "bottom": marker.get("bottom"),
+                        },
+                        "status": "updated",
+                    }
+                )
                 cropped += 1
         summary.append({"examId": exam_id, "cropped": cropped, "fallbacks": fallbacks})
 

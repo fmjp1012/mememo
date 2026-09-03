@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-08-31T14:17:19.176Z",
+  "sourceFile": "questionBank.js",
+  "officialReferences": {
+    "syllabus": "https://www.kentei.ne.jp/bookkeeping/35697-2",
+    "examFormat": "https://www.kentei.ne.jp/32364",
+    "syllabusVersion": "2022年度適用区分（2026年度試験にも適用）"
+  },
+  "packs": {
+    "2級": {
+      "questions": 228,
+      "editorialCorrections": 33,
+      "subjects": {
+        "商業簿記": 114,
+        "工業簿記": 114
+      }
+    },
+    "3級": {
+      "questions": 126,
+      "editorialCorrections": 24,
+      "subjects": {
+        "商業簿記": 126
+      }
+    }
+  },
+  "validation": {
+    "duplicateIds": 0,
+    "invalidChoiceCounts": 0,
+    "duplicateChoices": 0,
+    "invalidAnswers": 0,
+    "missingExplanations": 0,
+    "missingProcessingHistory": 0
+  },
+  "limitations": [
+    "日本商工会議所の公式問題・公式解答ではなく、出題区分を参照したオリジナル四肢択一問題です。",
+    "同じ論点で数値だけを変えた計算・仕訳バリエーションを含みます。",
+    "アプリの基礎確認模試は本試験の大問構成や入力式を完全には再現していません。"
+  ]
+}

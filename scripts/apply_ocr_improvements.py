@@ -266,6 +266,17 @@ def improved_transcription(question: dict, cache: dict[str, dict[str, str]] | No
         "needsReview": needs_review,
         "qualityScore": round(score, 2),
         "qualityReasons": reasons,
+        "localOcrCandidates": [
+            {
+                "name": item.get("name", ""),
+                "score": item.get("score"),
+                "chars": item.get("chars"),
+                "reasons": item.get("reasons", []),
+                "sample": item.get("text", item.get("sample", ""))[:1800],
+                **({"error": item["error"]} if item.get("error") else {}),
+            }
+            for item in results
+        ],
     }
     return transcription, {"best": best, "results": results}
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,7 @@ REPORT_DIR = ROOT / "tmp/llm-correction"
 DEFAULT_MODEL = "gpt-5-mini"
 KANA_CHOICES = ["ア", "イ", "ウ", "エ"]
 NUMERIC_CHOICES = ["1", "2", "3", "4", "5"]
+PROMPT_VERSION = "2026-06-26-structured-read-v1"
 
 
 SYSTEM_PROMPT = """You are a meticulous Japanese exam transcription corrector.
@@ -37,12 +39,14 @@ Return only JSON that matches the requested schema.
 Rules:
 - Preserve the original Japanese meaning. Do not solve or explain the problem.
 - Output polished Markdown in Japanese.
+- Keep text and markdown as the problem body only. Put answer choices only in choices.
+- Preserve meaningful line breaks: keep paragraph, condition-list, quote, code, and table boundaries, but do not insert line breaks only because the PDF visually wrapped a long sentence.
 - Convert clear tables to GitHub-flavored Markdown tables.
 - Convert formulas and spreadsheet expressions into clear text and LaTeX where appropriate.
 - Preserve pseudo-code indentation when visible.
 - Keep answer choices with the same labels as the original question when they exist.
 - If the image/OCR is insufficient, still return your best correction and set needsReview=true.
-- Never invent omitted numbers, table cells, or formulas. Mark uncertain fields in reviewNotes.
+- Never invent omitted numbers, table cells, labels, paths, or formulas. Put uncertain spans in uncertainSpans and explain them in reviewNotes.
 """
 
 
@@ -55,12 +59,16 @@ Rules:
 - The first question heading in text/markdown/latex must be the target question number. Do not include preceding or following questions.
 - Preserve the original Japanese meaning. Do not solve or explain the problem.
 - Output polished Markdown in Japanese.
+- Keep text and markdown as the problem body only. Put answer choices only in choices.
+- Preserve meaningful line breaks: keep paragraph, condition-list, quote, code, and table boundaries, but do not insert line breaks only because the PDF visually wrapped a long sentence.
+- Use bodyMarkdown for the same problem body shown to learners, without embedded answer choices or OCR/debug labels.
+- Use rawVisibleText for a faithful line-oriented transcription of all target-question text visible in the image, including choice labels.
 - Convert clear tables to GitHub-flavored Markdown tables.
 - Convert formulas and spreadsheet expressions into clear text and LaTeX where appropriate.
 - Preserve pseudo-code indentation when visible.
 - Keep answer choices with the same labels as the original question when they exist.
 - If text, diagrams, table cells, shaded areas, paths, formulas, or symbols are not fully readable, return your best transcription and set needsReview=true.
-- Never invent omitted numbers, table cells, paths, or formulas. Mark uncertain fields in reviewNotes.
+- Never invent omitted numbers, table cells, labels, paths, or formulas. Put uncertain spans in uncertainSpans and explain them in reviewNotes.
 """
 
 
@@ -70,8 +78,13 @@ JSON_SCHEMA = {
     "required": [
         "text",
         "markdown",
+        "bodyMarkdown",
+        "rawVisibleText",
         "latex",
         "choices",
+        "tables",
+        "figures",
+        "uncertainSpans",
         "layoutFlags",
         "needsReview",
         "reviewNotes",
@@ -79,6 +92,8 @@ JSON_SCHEMA = {
     "properties": {
         "text": {"type": "string"},
         "markdown": {"type": "string"},
+        "bodyMarkdown": {"type": "string"},
+        "rawVisibleText": {"type": "string"},
         "latex": {"type": "string"},
         "choices": {
             "type": "array",
@@ -91,6 +106,44 @@ JSON_SCHEMA = {
                 "properties": {
                     "label": {"type": "string"},
                     "text": {"type": "string"},
+                },
+            },
+        },
+        "tables": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["title", "markdown", "notes"],
+                "properties": {
+                    "title": {"type": "string"},
+                    "markdown": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+        },
+        "figures": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["description", "labels", "notes"],
+                "properties": {
+                    "description": {"type": "string"},
+                    "labels": {"type": "array", "items": {"type": "string"}},
+                    "notes": {"type": "string"},
+                },
+            },
+        },
+        "uncertainSpans": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["text", "reason"],
+                "properties": {
+                    "text": {"type": "string"},
+                    "reason": {"type": "string"},
                 },
             },
         },
@@ -130,6 +183,15 @@ def normalize_text(value: str) -> str:
     value = re.sub(r"[ \t]+", " ", value)
     value = re.sub(r"\n{3,}", "\n\n", value)
     return value.strip()
+
+
+def prompt_metadata(image_only: bool) -> dict:
+    prompt = IMAGE_ONLY_SYSTEM_PROMPT if image_only else SYSTEM_PROMPT
+    return {
+        "promptName": "IMAGE_ONLY_SYSTEM_PROMPT" if image_only else "SYSTEM_PROMPT",
+        "promptVersion": PROMPT_VERSION,
+        "promptHash": hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16],
+    }
 
 
 def is_suspicious(question: dict) -> bool:
@@ -212,7 +274,12 @@ def user_payload(question: dict, include_image: bool, image_only: bool) -> list[
             "questionNumber": question.get("questionNumber"),
             "answerKana": question.get("answerKana"),
             "choiceLabels": question.get("choiceLabels", []),
-            "instruction": "Transcribe only this target question from the image from scratch. Ignore other questions visible on the same page. Return Markdown/LaTeX and choices for the target question only. Use needsReview=true for any uncertainty.",
+            "instruction": (
+                "Transcribe only this target question from the image from scratch. "
+                "Ignore other questions visible on the same page. Return structured Markdown/LaTeX and choices for the target question only. "
+                "Keep problem body separate from choices. Preserve meaningful paragraph/list/code/table line breaks. "
+                "Use needsReview=true and uncertainSpans for any uncertainty."
+            ),
         }
     else:
         payload = {
@@ -231,7 +298,11 @@ def user_payload(question: dict, include_image: bool, image_only: bool) -> list[
             },
             "existingChoices": question.get("choices", []),
             "choiceLabels": question.get("choiceLabels", []),
-            "instruction": "Correct the transcription and return Markdown/LaTeX. Use the image as source of truth when included.",
+            "instruction": (
+                "Correct the transcription and return structured Markdown/LaTeX. Use the image as source of truth when included. "
+                "Keep problem body separate from choices. Preserve meaningful paragraph/list/code/table line breaks. "
+                "Use needsReview=true and uncertainSpans for any uncertainty."
+            ),
         }
     content: list[dict] = [
         {
@@ -313,7 +384,8 @@ def expected_choice_labels(question: dict) -> list[str]:
 
 
 def validate_correction(value: dict, question: dict | None = None) -> dict:
-    choices = value.get("choices") or []
+    choices = [choice for choice in value.get("choices", []) if isinstance(choice, dict)]
+    value["choices"] = choices
     labels = [choice.get("label") for choice in choices]
     expected_labels = expected_choice_labels(question or {})
     if choices and labels != expected_labels:
@@ -321,8 +393,55 @@ def validate_correction(value: dict, question: dict | None = None) -> dict:
         notes = list(value.get("reviewNotes") or [])
         notes.append(f"Choice labels are not exactly {expected_labels}: {labels}")
         value["reviewNotes"] = notes
-    for key in ["text", "markdown", "latex"]:
+    for key in ["text", "markdown", "bodyMarkdown", "rawVisibleText", "latex"]:
         value[key] = normalize_text(str(value.get(key) or ""))
+    if not value["bodyMarkdown"]:
+        value["bodyMarkdown"] = value["markdown"] or value["text"]
+    if not value["markdown"]:
+        value["markdown"] = value["bodyMarkdown"] or value["text"]
+    if not value["text"]:
+        value["text"] = value["bodyMarkdown"] or value["markdown"]
+    if not value["rawVisibleText"]:
+        value["rawVisibleText"] = "\n".join(
+            item
+            for item in [
+                value["bodyMarkdown"],
+                *[
+                    f"{choice.get('label', '')} {choice.get('text', '')}".strip()
+                    for choice in choices
+                    if isinstance(choice, dict)
+                ],
+            ]
+            if item
+        )
+    value["tables"] = [
+        {
+            "title": normalize_text(str(table.get("title") or "")),
+            "markdown": normalize_text(str(table.get("markdown") or "")),
+            "notes": normalize_text(str(table.get("notes") or "")),
+        }
+        for table in value.get("tables", [])
+        if isinstance(table, dict)
+    ]
+    value["figures"] = [
+        {
+            "description": normalize_text(str(figure.get("description") or "")),
+            "labels": [str(label) for label in figure.get("labels", [])],
+            "notes": normalize_text(str(figure.get("notes") or "")),
+        }
+        for figure in value.get("figures", [])
+        if isinstance(figure, dict)
+    ]
+    value["uncertainSpans"] = [
+        {
+            "text": normalize_text(str(span.get("text") or "")),
+            "reason": normalize_text(str(span.get("reason") or "")),
+        }
+        for span in value.get("uncertainSpans", [])
+        if isinstance(span, dict)
+    ]
+    if value["uncertainSpans"]:
+        value["needsReview"] = True
     value["layoutFlags"] = [
         flag
         for flag in value.get("layoutFlags", [])
@@ -333,7 +452,7 @@ def validate_correction(value: dict, question: dict | None = None) -> dict:
     return value
 
 
-def apply_correction(question: dict, correction: dict, model: str, image_only: bool) -> None:
+def apply_correction(question: dict, correction: dict, model: str, image_only: bool, usage: dict | None = None) -> None:
     transcription = question.get("transcription") or {}
     previous = {
         "engine": transcription.get("engine"),
@@ -347,8 +466,13 @@ def apply_correction(question: dict, correction: dict, model: str, image_only: b
             "rawText": correction["text"],
             "text": correction["text"],
             "markdown": correction["markdown"],
+            "bodyMarkdown": correction["bodyMarkdown"],
+            "rawVisibleText": correction["rawVisibleText"],
             "latex": correction["latex"],
             "choices": correction["choices"],
+            "tables": correction["tables"],
+            "figures": correction["figures"],
+            "uncertainSpans": correction["uncertainSpans"],
             "layoutFlags": correction["layoutFlags"],
             "needsReview": correction["needsReview"],
             "reviewNotes": correction["reviewNotes"],
@@ -357,22 +481,33 @@ def apply_correction(question: dict, correction: dict, model: str, image_only: b
     )
     question["transcription"] = transcription
     question["searchText"] = normalize_text(
-        " ".join(str(transcription.get(key, "")) for key in ["rawText", "text", "markdown", "latex"])
+        " ".join(
+            str(transcription.get(key, ""))
+            for key in ["rawText", "text", "markdown", "bodyMarkdown", "rawVisibleText", "latex"]
+        )
     )
     if len(correction["choices"]) >= 4 and all(choice["text"] for choice in correction["choices"]):
         question["choices"] = [choice["text"] for choice in correction["choices"]]
         question["choiceLabels"] = [choice["label"] for choice in correction["choices"]]
     history = question.setdefault("processingHistory", [])
+    prompt_meta = prompt_metadata(image_only)
     history.append(
         {
             "stage": "ocr_correction",
             "tool": "scripts/llm_correct_questions.py",
             "model": model,
+            "runId": f"ocr:{model}:{prompt_meta['promptHash']}:{int(time.time())}",
             "mode": "image-only" if image_only else "ocr-plus-image",
+            **prompt_meta,
             "inputImage": question.get("image"),
             "outputEngine": transcription.get("engine"),
             "status": transcription.get("status"),
             "needsReview": transcription.get("needsReview"),
+            "uncertainSpanCount": len(correction["uncertainSpans"]),
+            "usage": usage or {},
+            "outputTextSample": correction["text"][:1200],
+            "outputMarkdownSample": correction["markdown"][:1200],
+            "outputChoices": correction["choices"][:8],
         }
     )
 
@@ -417,12 +552,13 @@ def estimate_tokens(targets: list[dict], include_image: bool, image_only: bool) 
             text_chars += len(transcription.get("markdown", ""))
         text_chars += 600
     input_tokens = max(1, int(text_chars / 2.2))
-    output_tokens = max(1, len(targets) * 900)
+    output_tokens = max(1, len(targets) * 1300)
     return {
         "questions": len(targets),
         "estimatedInputTokens": input_tokens,
         "estimatedOutputTokens": output_tokens,
         "includeImage": include_image,
+        "imageOnly": image_only,
     }
 
 
@@ -472,8 +608,8 @@ def main() -> int:
         try:
             response = openai_response(question, args.model, args.include_image, args.image_only, args.timeout)
             correction = validate_correction(extract_output_json(response), question)
-            apply_correction(by_id[question["id"]], correction, args.model, args.image_only)
             usage = usage_from_response(response)
+            apply_correction(by_id[question["id"]], correction, args.model, args.image_only, usage)
             for key in usage_totals:
                 usage_totals[key] += usage.get(key, 0)
             corrections.append({"id": question["id"], "correction": correction, "usage": usage})

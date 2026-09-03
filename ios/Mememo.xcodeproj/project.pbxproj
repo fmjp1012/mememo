@@ -15,6 +15,7 @@
 		2E7A4FB02CE34B9800A10001 /* basic-info in Resources */ = {isa = PBXBuildFile; fileRef = 2E7A4FB12CE34B9800A10001 /* basic-info */; };
 		2E7A4FB22CE34B9800A10001 /* applied-info in Resources */ = {isa = PBXBuildFile; fileRef = 2E7A4FB32CE34B9800A10001 /* applied-info */; };
 		2E7A4FB42CE34B9800A10001 /* officer in Resources */ = {isa = PBXBuildFile; fileRef = 2E7A4FB52CE34B9800A10001 /* officer */; };
+		2E7A4FB62CE34B9800A10001 /* bookkeeping in Resources */ = {isa = PBXBuildFile; fileRef = 2E7A4FB72CE34B9800A10001 /* bookkeeping */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 		2E7A4FB12CE34B9800A10001 /* basic-info */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "Resources/basic-info"; sourceTree = "<group>"; };
 		2E7A4FB32CE34B9800A10001 /* applied-info */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "Resources/applied-info"; sourceTree = "<group>"; };
 		2E7A4FB52CE34B9800A10001 /* officer */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/officer; sourceTree = "<group>"; };
+		2E7A4FB72CE34B9800A10001 /* bookkeeping */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/bookkeeping; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -57,6 +59,7 @@
 				2E7A4FB12CE34B9800A10001 /* basic-info */,
 				2E7A4FB32CE34B9800A10001 /* applied-info */,
 				2E7A4FB52CE34B9800A10001 /* officer */,
+				2E7A4FB72CE34B9800A10001 /* bookkeeping */,
 			);
 			path = Mememo;
 			sourceTree = "<group>";
@@ -123,6 +126,7 @@
 				2E7A4FB02CE34B9800A10001 /* basic-info in Resources */,
 				2E7A4FB22CE34B9800A10001 /* applied-info in Resources */,
 				2E7A4FB42CE34B9800A10001 /* officer in Resources */,
+				2E7A4FB62CE34B9800A10001 /* bookkeeping in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

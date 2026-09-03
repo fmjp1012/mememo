@@ -294,6 +294,7 @@ struct PackProgress {
 }
 
 private struct StoredProgress: Codable {
+    var catalogVersion: Int?
     var enabledPackIDs: [String]
     var attempts: [String: AttemptRecord]
     var bookmarks: [String]
@@ -311,6 +312,7 @@ final class StudyStore {
     var selectedExamID: String = "all"
 
     private let storageKey = "mememo-progress-v1-ios"
+    private let packCatalogVersion = 2
 
     init() {
         let defaults = Set(LearningData.packs.map(\.id))
@@ -324,7 +326,10 @@ final class StudyStore {
             sessions = []
             return
         }
-        enabledPackIDs = stored.enabledPackIDs.isEmpty ? defaults : Set(stored.enabledPackIDs)
+        let storedPackIDs = stored.enabledPackIDs.isEmpty ? defaults : Set(stored.enabledPackIDs)
+        enabledPackIDs = (stored.catalogVersion ?? 1) < packCatalogVersion
+            ? storedPackIDs.union(["bookkeeping-2", "bookkeeping-3"])
+            : storedPackIDs
         attempts = stored.attempts
         bookmarks = Set(stored.bookmarks)
         sessions = stored.sessions
@@ -451,6 +456,7 @@ final class StudyStore {
 
     private func save() {
         let stored = StoredProgress(
+            catalogVersion: packCatalogVersion,
             enabledPackIDs: Array(enabledPackIDs),
             attempts: attempts,
             bookmarks: Array(bookmarks),

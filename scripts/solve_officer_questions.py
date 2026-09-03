@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -24,6 +25,7 @@ ENV_FILE = ROOT / ".env"
 REPORT_DIR = ROOT / "tmp/officer-answer-solver"
 DEFAULT_MODEL = "gpt-5-mini"
 NUMERIC_LABELS = ["1", "2", "3", "4", "5"]
+PROMPT_VERSION = "2026-06-26-officer-solve-v1"
 
 
 SYSTEM_PROMPT = """You are a meticulous Japanese exam solver and transcription reviewer.
@@ -106,6 +108,14 @@ def normalize_text(value: str) -> str:
     value = re.sub(r"[ \t]+", " ", value)
     value = re.sub(r"\n{3,}", "\n\n", value)
     return value.strip()
+
+
+def prompt_metadata() -> dict:
+    return {
+        "promptName": "OFFICER_SOLVE_SYSTEM_PROMPT",
+        "promptVersion": PROMPT_VERSION,
+        "promptHash": hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:16],
+    }
 
 
 def is_copyright_blocked(question: dict) -> bool:
@@ -235,6 +245,25 @@ def clean_choice_text(value: str) -> str:
     return re.sub(r"^\(?[1-5]\)?[\s　:：.．、]+", "", normalize_text(value))
 
 
+def extract_numbered_choices(text: str) -> list[dict]:
+    """Recover line-start numbered choices from LLM text/markdown output."""
+    if not text:
+        return []
+    markers = list(re.finditer(r"(?m)^[ \t　]*[（(]([1-5])[）)][ \t　]*", text))
+    labels = [marker.group(1) for marker in markers]
+    if labels != NUMERIC_LABELS:
+        return []
+    choices = []
+    for index, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        choice_text = clean_choice_text(text[start:end])
+        if not choice_text:
+            return []
+        choices.append({"label": marker.group(1), "text": choice_text})
+    return choices
+
+
 def validate_solution(solution: dict) -> dict:
     solution["text"] = normalize_text(str(solution.get("text") or ""))
     solution["markdown"] = normalize_text(str(solution.get("markdown") or ""))
@@ -246,6 +275,11 @@ def validate_solution(solution: dict) -> dict:
         text = clean_choice_text(str(choice.get("text") or ""))
         if label in NUMERIC_LABELS:
             normalized_choices.append({"label": label, "text": text})
+    if len(normalized_choices) != 5:
+        normalized_choices = (
+            extract_numbered_choices(solution["markdown"])
+            or extract_numbered_choices(solution["text"])
+        )
     solution["choices"] = normalized_choices
     solution["solvable"] = bool(solution.get("solvable"))
     answer_label = solution.get("answerLabel")
@@ -264,7 +298,7 @@ def validate_solution(solution: dict) -> dict:
     return solution
 
 
-def apply_solution(question: dict, solution: dict, model: str) -> None:
+def apply_solution(question: dict, solution: dict, model: str, usage: dict | None = None) -> None:
     transcription = question.get("transcription") or {}
     previous = {
         "engine": transcription.get("engine"),
@@ -317,18 +351,26 @@ def apply_solution(question: dict, solution: dict, model: str) -> None:
         )
     )
     history = question.setdefault("processingHistory", [])
+    prompt_meta = prompt_metadata()
     history.append(
         {
             "stage": "answer_generation",
             "tool": "scripts/solve_officer_questions.py",
             "model": model,
+            "runId": f"solve:{model}:{prompt_meta['promptHash']}:{int(time.time())}",
             "mode": "image-plus-ocr",
+            **prompt_meta,
             "inputImage": question.get("image"),
             "answerLabel": question.get("answerLabel"),
             "answerSource": question.get("answerSource"),
             "answerVerified": question.get("answerVerified"),
             "answerConfidence": question.get("answerConfidence"),
             "needsAnswerReview": question.get("needsAnswerReview"),
+            "usage": usage or {},
+            "outputTextSample": solution["text"][:1200],
+            "outputMarkdownSample": solution["markdown"][:1200],
+            "outputChoices": solution["choices"][:8],
+            "outputExplanation": solution["explanation"][:1200],
         }
     )
 
@@ -360,12 +402,15 @@ def mark_copyright_blocked(question: dict, model: str) -> None:
     question["needsAnswerReview"] = True
     question["answerReviewNotes"] = ["Required source passage is unavailable due to copyright."]
     question["explanation"] = "著作権の関係で必要な本文が掲載されていないため、AI推定解答の対象外です。"
+    prompt_meta = prompt_metadata()
     question.setdefault("processingHistory", []).append(
         {
             "stage": "answer_generation",
             "tool": "scripts/solve_officer_questions.py",
             "model": model,
+            "runId": f"solve:{model}:{prompt_meta['promptHash']}:{int(time.time())}",
             "mode": "copyright-skip",
+            **prompt_meta,
             "inputImage": question.get("image"),
             "answerLabel": None,
             "answerSource": question.get("answerSource"),
@@ -439,8 +484,8 @@ def main() -> int:
         try:
             response = openai_response(target, args.model, args.timeout, args.max_output_tokens)
             solution = validate_solution(extract_output_json(response))
-            apply_solution(target, solution, args.model)
             usage = usage_from_response(response)
+            apply_solution(target, solution, args.model, usage)
             for key in usage_totals:
                 usage_totals[key] += usage.get(key, 0)
             record = {"id": target["id"], "solution": solution, "usage": usage}

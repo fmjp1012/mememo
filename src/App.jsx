@@ -2,26 +2,62 @@ import { useEffect, useMemo, useState } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import {
+  ArrowLeft,
+  AlertCircle,
   BarChart3,
+  BookOpen,
   Brain,
+  Calculator,
   Check,
+  CheckCircle2,
+  ChevronRight,
   Clock,
+  Cloud,
+  CloudOff,
+  CreditCard,
+  Crown,
+  Database,
   FileText,
   Flag,
   GraduationCap,
   History,
+  Keyboard,
+  LayoutDashboard,
   ListChecks,
+  Lock,
+  LogIn,
+  LogOut,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   PlugZap,
+  RefreshCw,
   RotateCcw,
   Shield,
   Shuffle,
+  Sparkles,
   Target,
   TimerReset,
   Trophy,
+  User,
+  Users,
   X,
 } from "lucide-react";
 import {
+  checkAdminAccess,
+  createAnnouncement,
+  loadAdminDashboard,
+  loadPublicAnnouncements,
+  updateAnnouncement,
+  updateSupportStatus,
+} from "./adminClient.js";
+import { authConfigReady, getAuthRedirectUrl, getEnabledOAuthProviders, supabase } from "./authClient.js";
+import { createBillingPortal, createCheckout, getMembership } from "./billingClient.js";
+import {
+  bookkeepingPackIds,
   defaultEnabledPacks,
   getPack,
   loadQuestionBank,
@@ -29,20 +65,52 @@ import {
   questionBank,
   visibleLearningPacks,
 } from "./learningContent.js";
+import { submitSupportMessage } from "./supportClient.js";
+import { getCourseLessons, getMaterialLesson, materialCourses, materialLessons } from "./materials.js";
+import {
+  getLinkedProviders,
+  getUserAvatarUrl,
+  getUserDisplayName,
+  loadUserLearningState,
+  mergeLearningState,
+  saveUserLearningState,
+} from "./userDataClient.js";
 
 const STORAGE_KEY = "mememo-progress-v1";
 const SETTINGS_STORAGE_KEY = "mememo-settings-v1";
-const DEFAULT_PACK_ID = "itpass";
-const DEFAULT_EXAM_ID = "2026r08";
+const DEFAULT_PACK_ID = "bookkeeping-2";
+const DEFAULT_EXAM_ID = "all";
+const PACK_CATALOG_VERSION = 3;
+const ENTRY_TRACKS = {
+  bookkeeping: {
+    path: "/",
+    packIds: bookkeepingPackIds,
+    defaultPackId: "bookkeeping-2",
+  },
+  officer: {
+    path: "/officer",
+    packIds: officerCandidatePackIds,
+    defaultPackId: "officer-candidate",
+  },
+};
 const POLISHED_ITPASS_EXAM_IDS = new Set(["2026r08", "2025r07", "2024r06"]);
 const choiceShortcutKeys = ["1", "2", "3", "4", "5", "6", "7", "8"];
 const nextShortcutKey = "n";
 const previousShortcutKey = "p";
+const reviewIntervalsInDays = [0, 1, 3, 7, 14, 30, 60, 120];
+const DEFAULT_DAILY_NEW_QUESTION_LIMIT = 12;
+const UNLIMITED_DAILY_NEW_QUESTIONS = "unlimited";
+const dailyNewQuestionLimitOptions = [5, 10, 12, 20, 30, 50, 100, UNLIMITED_DAILY_NEW_QUESTIONS];
+const reviewRatingOptions = [
+  { id: "again", label: "もう一度", intervalLabel: "1分" },
+  { id: "hard", label: "難しい", intervalLabel: "1日" },
+  { id: "good", label: "できた", intervalLabel: "3日" },
+  { id: "easy", label: "簡単", intervalLabel: "7日" },
+];
 
 const mockProfiles = {
-  itpass: { label: "ITパスポート 本試験", minutes: 120, questions: 100 },
-  "basic-info": { label: "基本情報 公開サンプル", minutes: 190, questions: 26 },
-  "applied-info": { label: "応用情報 午前", minutes: 150, questions: 80 },
+  "bookkeeping-2": { label: "日商簿記2級 基礎確認", minutes: 90, questions: 30 },
+  "bookkeeping-3": { label: "日商簿記3級 基礎確認", minutes: 60, questions: 30 },
   "officer-candidate": { label: "幹部候補生 一般教養・専門択一", minutes: 200, questions: null },
   "officer-kyouyou": { label: "一般教養 本試験", minutes: 180, questions: null },
   "officer-senmon": { label: "専門択一 本試験", minutes: 110, questions: null },
@@ -73,7 +141,7 @@ const orderOptions = [
   {
     id: "ordered",
     title: "問題番号順",
-    description: "公式PDFの並びで進める",
+    description: "データセットの並びで進める",
     icon: ListChecks,
   },
   {
@@ -85,15 +153,33 @@ const orderOptions = [
 ];
 
 const emptyProgress = {
+  packCatalogVersion: PACK_CATALOG_VERSION,
   attempts: {},
   bookmarks: [],
   history: [],
   sessions: [],
+  dailyStudy: { date: "", completedQuestionIds: [], newQuestionIds: [] },
+  lessonProgress: {},
   enabledPacks: defaultEnabledPacks,
 };
 
+function getEntryTrackFromLocation() {
+  return window.location.pathname.startsWith("/officer") ? "officer" : "bookkeeping";
+}
+
+function getEntryTrackPackIds(track) {
+  return ENTRY_TRACKS[track]?.packIds ?? ENTRY_TRACKS.bookkeeping.packIds;
+}
+
+function getFreshProgress() {
+  return {
+    ...emptyProgress,
+    enabledPacks: [...getEntryTrackPackIds(getEntryTrackFromLocation())],
+  };
+}
+
 function normalizeEnabledPacks(enabledPacks) {
-  const validPackIds = new Set(defaultEnabledPacks);
+  const validPackIds = new Set([...bookkeepingPackIds, ...officerCandidatePackIds]);
   const normalized = [];
   for (const packId of enabledPacks) {
     if (packId === "officer-candidate") {
@@ -128,20 +214,33 @@ function getQuestionPackFilterId(question) {
 function loadProgress() {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) return emptyProgress;
+    if (!stored) return getFreshProgress();
     const parsed = JSON.parse(stored);
     const enabledPacks = normalizeEnabledPacks(Array.isArray(parsed.enabledPacks) ? parsed.enabledPacks : []);
+    const previousVersion = parsed.packCatalogVersion ?? 1;
+    const officerActivity = (parsed.history ?? []).some((item) => officerCandidatePackIds.includes(item.packId)) ||
+      Object.keys(parsed.attempts ?? {}).some((id) => /officer|kyouyou|senmon|r\d-\d-(?:kyouyou|senmon)/i.test(id));
+    const wasMixedDefault = [...bookkeepingPackIds, ...officerCandidatePackIds]
+      .every((packId) => enabledPacks.includes(packId));
+    let migratedEnabledPacks = previousVersion < 2
+      ? normalizeEnabledPacks([...enabledPacks, ...bookkeepingPackIds])
+      : enabledPacks;
+    if (previousVersion < 3 && wasMixedDefault && !officerActivity) {
+      migratedEnabledPacks = [...bookkeepingPackIds];
+    }
     return {
       ...emptyProgress,
       ...parsed,
-      enabledPacks: enabledPacks.length > 0 ? enabledPacks : defaultEnabledPacks,
+      packCatalogVersion: PACK_CATALOG_VERSION,
+      enabledPacks: migratedEnabledPacks.length > 0 ? migratedEnabledPacks : getFreshProgress().enabledPacks,
       bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [],
       history: Array.isArray(parsed.history) ? parsed.history : [],
       sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
       attempts: parsed.attempts && typeof parsed.attempts === "object" ? parsed.attempts : {},
+      lessonProgress: parsed.lessonProgress && typeof parsed.lessonProgress === "object" ? parsed.lessonProgress : {},
     };
   } catch {
-    return emptyProgress;
+    return getFreshProgress();
   }
 }
 
@@ -150,15 +249,23 @@ function saveProgress(progress) {
 }
 
 function getDefaultSettings(progress) {
+  const entryTrack = getEntryTrackFromLocation();
   return {
     enabledPacks: progress.enabledPacks,
-    packId: DEFAULT_PACK_ID,
+    packId: ENTRY_TRACKS[entryTrack].defaultPackId,
     examId: DEFAULT_EXAM_ID,
     subject: "すべて",
     category: "すべて",
     mode: "random",
     order: "ordered",
+    dailyNewQuestionLimit: DEFAULT_DAILY_NEW_QUESTION_LIMIT,
   };
+}
+
+function normalizeDailyNewQuestionLimit(value) {
+  if (value === UNLIMITED_DAILY_NEW_QUESTIONS) return value;
+  const parsed = Number(value);
+  return dailyNewQuestionLimitOptions.includes(parsed) ? parsed : DEFAULT_DAILY_NEW_QUESTION_LIMIT;
 }
 
 function loadSettings(progress) {
@@ -179,6 +286,7 @@ function loadSettings(progress) {
       packId: validPackIds.has(packId) ? packId : defaults.packId,
       mode: parsed.mode === "weak" ? "weak" : "random",
       order: parsed.order === "ordered" ? "ordered" : "random",
+      dailyNewQuestionLimit: normalizeDailyNewQuestionLimit(parsed.dailyNewQuestionLimit),
     };
   } catch {
     return defaults;
@@ -187,6 +295,23 @@ function loadSettings(progress) {
 
 function saveSettings(settings) {
   window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function sanitizeSyncedSettings(remoteSettings, progress, fallbackSettings) {
+  if (!remoteSettings || typeof remoteSettings !== "object") return fallbackSettings;
+  const validPackIds = new Set(["all", ...visibleLearningPacks.map((pack) => pack.id)]);
+  const remotePackId = officerCandidatePackIds.includes(remoteSettings.packId)
+    ? "officer-candidate"
+    : remoteSettings.packId;
+  return {
+    ...fallbackSettings,
+    ...remoteSettings,
+    enabledPacks: progress.enabledPacks,
+    packId: validPackIds.has(remotePackId) ? remotePackId : fallbackSettings.packId,
+    mode: remoteSettings.mode === "weak" ? "weak" : "random",
+    order: remoteSettings.order === "random" ? "random" : "ordered",
+    dailyNewQuestionLimit: normalizeDailyNewQuestionLimit(remoteSettings.dailyNewQuestionLimit),
+  };
 }
 
 function shuffle(items) {
@@ -287,9 +412,7 @@ function buildQuiz(settings, progress) {
   if (settings.mode === "weak") {
     source = filtered.filter((question) => {
       const attempt = progress.attempts[question.id];
-      if (!attempt) return false;
-      const accuracy = attempt.total > 0 ? attempt.correct / attempt.total : 0;
-      return attempt.wrong > 0 || accuracy < 0.7;
+      return isReviewAttemptDue(attempt);
     });
   }
 
@@ -304,7 +427,9 @@ function buildQuiz(settings, progress) {
       .sort((a, b) => {
         const left = progress.attempts[a.id] ?? { wrong: 0, correct: 0, total: 0 };
         const right = progress.attempts[b.id] ?? { wrong: 0, correct: 0, total: 0 };
-        return right.wrong - left.wrong || left.correct / Math.max(1, left.total) - right.correct / Math.max(1, right.total);
+        return getReviewSortValue(right) - getReviewSortValue(left) ||
+          right.wrong - left.wrong ||
+          left.correct / Math.max(1, left.total) - right.correct / Math.max(1, right.total);
       });
   }
 
@@ -318,6 +443,28 @@ function buildQuiz(settings, progress) {
     return right - left;
   });
   return weighted;
+}
+
+function getFirstMatchingExamId(settings) {
+  const match = questionBank.find((question) => {
+    const packEnabled = settings.enabledPacks.includes(question.packId);
+    const packMatch = questionMatchesPackSelection(question, settings.packId);
+    const subjectMatch = settings.subject === "すべて" || getFilterSubject(question) === settings.subject;
+    const categoryMatch = settings.category === "すべて" || getFilterCategory(question) === settings.category;
+    return packEnabled && packMatch && subjectMatch && categoryMatch && question.examId;
+  });
+  return match?.examId ?? settings.examId;
+}
+
+function normalizePracticeSettings(settings) {
+  if (settings.mode !== "random" || !isOfficerPackSelection(settings.packId) || settings.examId !== "all") {
+    return settings;
+  }
+  return {
+    ...settings,
+    examId: getFirstMatchingExamId(settings),
+    order: "ordered",
+  };
 }
 
 function dueWeight(question, progress) {
@@ -358,7 +505,7 @@ function packStats(progress) {
 }
 
 function mockPackStats() {
-  return ["itpass", "basic-info", "applied-info", "officer-kyouyou", "officer-senmon"].map((packId) => {
+  return ["bookkeeping-2", "bookkeeping-3", "officer-kyouyou", "officer-senmon"].map((packId) => {
     const pack = getPack(packId);
     const questions = questionBank.filter((question) => question.packId === packId);
     return { ...pack, questionCount: questions.length };
@@ -395,6 +542,81 @@ function getAttemptAccuracy(attempt) {
   const graded = attempt.correct + attempt.wrong;
   if (graded === 0) return null;
   return Math.round((attempt.correct / graded) * 100);
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function endOfToday() {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  return today.getTime();
+}
+
+function formatReviewDueLabel(dueAt) {
+  if (!dueAt) return "今日";
+  const dueTime = new Date(dueAt).getTime();
+  if (Number.isNaN(dueTime)) return "今日";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dueTime);
+  target.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  if (diffDays <= -1) return `${Math.abs(diffDays)}日遅れ`;
+  if (diffDays === 0) return "今日";
+  if (diffDays === 1) return "明日";
+  return `${diffDays}日後`;
+}
+
+function isReviewAttemptDue(attempt) {
+  if (!attempt || (attempt.wrong ?? 0) <= 0) return false;
+  const dueTime = attempt.reviewDueAt ? new Date(attempt.reviewDueAt).getTime() : 0;
+  return !dueTime || dueTime <= endOfToday();
+}
+
+function getReviewSortValue(attempt) {
+  if (!attempt) return 0;
+  const dueTime = attempt.reviewDueAt ? new Date(attempt.reviewDueAt).getTime() : 0;
+  const overdueDays = dueTime ? Math.max(0, (Date.now() - dueTime) / 86_400_000) : 0;
+  return overdueDays * 4 + (attempt.lastResult === "wrong" ? 8 : 0) + (attempt.wrong ?? 0) * 2 - (attempt.reviewLevel ?? 0);
+}
+
+function updateAttemptForAnswer(previous = {}, correct, answeredAt) {
+  const next = {
+    total: (previous.total ?? 0) + 1,
+    correct: (previous.correct ?? 0) + (correct === true ? 1 : 0),
+    wrong: (previous.wrong ?? 0) + (correct === false ? 1 : 0),
+    ungraded: (previous.ungraded ?? 0) + (correct === null ? 1 : 0),
+    lastResult: correct === null ? "ungraded" : correct ? "correct" : "wrong",
+    lastAt: answeredAt,
+    reviewLevel: previous.reviewLevel ?? 0,
+    reviewDueAt: previous.reviewDueAt,
+    reviewLastAt: previous.reviewLastAt,
+  };
+
+  if (correct === false) {
+    return {
+      ...next,
+      reviewLevel: 0,
+      reviewDueAt: answeredAt,
+      reviewLastAt: answeredAt,
+    };
+  }
+
+  if (correct === true && ((previous.wrong ?? 0) > 0 || previous.reviewDueAt)) {
+    const reviewLevel = Math.min((previous.reviewLevel ?? 0) + 1, reviewIntervalsInDays.length - 1);
+    return {
+      ...next,
+      reviewLevel,
+      reviewDueAt: addDays(new Date(answeredAt), reviewIntervalsInDays[reviewLevel]).toISOString(),
+      reviewLastAt: answeredAt,
+    };
+  }
+
+  return next;
 }
 
 function getQuestionById(questionId) {
@@ -436,32 +658,130 @@ function buildReviewCandidates(progress) {
       const attempt = progress.attempts[question.id];
       const accuracy = getAttemptAccuracy(attempt);
       const wrong = attempt?.wrong ?? 0;
-      const total = attempt?.total ?? 0;
-      const lastAt = attempt?.lastAt ? new Date(attempt.lastAt).getTime() : 0;
       const reasons = [];
 
+      if (!isReviewAttemptDue(attempt)) return null;
+      reasons.push(formatReviewDueLabel(attempt.reviewDueAt));
       if (attempt?.lastResult === "wrong") reasons.push("直近ミス");
-      if (wrong > 0) reasons.push(`ミス${wrong}回`);
+      reasons.push(`ミス${wrong}回`);
       if (accuracy !== null && accuracy < 70) reasons.push(`正答率${accuracy}%`);
-
-      if (reasons.length === 0) return null;
-
-      const priority =
-        (attempt?.lastResult === "wrong" ? 5 : 0) +
-        wrong * 3 +
-        (accuracy === null ? 0 : Math.max(0, 70 - accuracy) / 10) +
-        Math.min(4, Math.max(0, Date.now() - lastAt) / 86_400_000) * 0.1;
 
       return {
         question,
         attempt,
         accuracy,
         reasons,
-        priority,
+        dueLabel: formatReviewDueLabel(attempt.reviewDueAt),
+        reviewLevel: attempt.reviewLevel ?? 0,
+        priority: getReviewSortValue(attempt) + (accuracy === null ? 0 : Math.max(0, 70 - accuracy) / 10),
       };
     })
     .filter(Boolean)
     .sort((a, b) => b.priority - a.priority || (b.attempt?.wrong ?? 0) - (a.attempt?.wrong ?? 0));
+}
+
+function getDayOffset(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.round((date.getTime() - today.getTime()) / 86_400_000);
+}
+
+function getLocalDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getStudyStreak(progress) {
+  const days = new Set((progress.history ?? []).map((entry) => {
+    const date = new Date(entry.answeredAt);
+    return Number.isNaN(date.getTime()) ? null : `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  }).filter(Boolean));
+  let streak = 0;
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  if (!days.has(`${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`)) cursor.setDate(cursor.getDate() - 1);
+  while (days.has(`${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`)) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function buildDailyStudyPlan(progress, settings) {
+  const enabled = new Set(settings.enabledPacks);
+  const todayKey = getLocalDateKey();
+  const completedToday = new Set(
+    progress.dailyStudy?.date === todayKey && Array.isArray(progress.dailyStudy.completedQuestionIds)
+      ? progress.dailyStudy.completedQuestionIds
+      : [],
+  );
+  const storedNewQuestionIds = progress.dailyStudy?.date === todayKey && Array.isArray(progress.dailyStudy.newQuestionIds)
+    ? progress.dailyStudy.newQuestionIds
+    : [];
+  const inferredLegacyNewQuestionIds = storedNewQuestionIds.length === 0
+    ? [...completedToday].filter((questionId) => {
+        const attempt = progress.attempts[questionId];
+        return attempt?.total === 1 && getLocalDateKey(new Date(attempt.lastAt)) === todayKey;
+      })
+    : [];
+  const dailyNewQuestionIds = new Set([...storedNewQuestionIds, ...inferredLegacyNewQuestionIds]);
+  const dueQuestions = buildReviewCandidates(progress)
+    .filter((item) => enabled.has(item.question.packId) && !completedToday.has(item.question.id))
+    .map((item) => item.question);
+  const dueIds = new Set(dueQuestions.map((question) => question.id));
+  const newQuestions = orderQuestions(questionBank.filter((question) =>
+    enabled.has(question.packId) &&
+    !dueIds.has(question.id) &&
+    !completedToday.has(question.id) &&
+    !progress.attempts[question.id] &&
+    !isQuestionUnavailable(question)
+  ));
+  const configuredLimit = normalizeDailyNewQuestionLimit(settings.dailyNewQuestionLimit);
+  const remainingNewQuestionLimit = configuredLimit === UNLIMITED_DAILY_NEW_QUESTIONS
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, configuredLimit - dailyNewQuestionIds.size);
+  const selectedNew = Number.isFinite(remainingNewQuestionLimit)
+    ? newQuestions.slice(0, remainingNewQuestionLimit)
+    : newQuestions;
+  const queue = [...dueQuestions, ...selectedNew];
+  const forecast = [1, 2, 3].map((day) => ({
+    day,
+    count: Object.values(progress.attempts).filter((attempt) => getDayOffset(attempt.reviewDueAt) === day).length,
+  }));
+  return {
+    queue,
+    reviewCount: dueQuestions.length,
+    newCount: selectedNew.length,
+    newQuestionIds: selectedNew.map((question) => question.id),
+    newQuestionLimit: configuredLimit,
+    estimatedMinutes: queue.length === 0 ? 0 : Math.max(1, Math.ceil(queue.length * 0.65)),
+    streak: getStudyStreak(progress),
+    forecast,
+  };
+}
+
+function applyReviewRating(previous = {}, rating, ratedAt) {
+  const intervalDays = rating === "hard" ? 1 : rating === "good" ? 3 : rating === "easy" ? 7 : 0;
+  const dueAt = rating === "again"
+    ? new Date(new Date(ratedAt).getTime() + 60_000)
+    : addDays(new Date(ratedAt), intervalDays);
+  const currentLevel = previous.reviewLevel ?? 0;
+  const reviewLevel = rating === "again"
+    ? 0
+    : rating === "hard"
+      ? Math.max(1, currentLevel)
+      : rating === "good"
+        ? Math.max(2, currentLevel + 1)
+        : Math.max(3, currentLevel + 2);
+  return {
+    ...previous,
+    reviewLevel: Math.min(reviewLevel, reviewIntervalsInDays.length - 1),
+    reviewDueAt: dueAt.toISOString(),
+    reviewLastAt: ratedAt,
+    reviewRating: rating,
+  };
 }
 
 function getMockProfile(settings) {
@@ -488,6 +808,9 @@ function createActiveQuiz(questions, options = {}) {
     answers: [],
     selections: {},
     examMode: options.examMode ?? false,
+    guidedPractice: options.guidedPractice ?? false,
+    dailyMode: options.dailyMode ?? false,
+    dailyNewQuestionIds: options.dailyNewQuestionIds ?? [],
     startedAt: options.startedAt ?? null,
     durationSeconds: options.durationSeconds ?? null,
     submittedAt: null,
@@ -495,13 +818,19 @@ function createActiveQuiz(questions, options = {}) {
 }
 
 function createQuizForSettings(settings, progress) {
-  const questions = buildQuiz(settings, progress);
-  if (settings.mode !== "mock") return createActiveQuiz(questions);
-  const limit = getMockQuestionLimit(settings, questions.length);
+  const normalizedSettings = normalizePracticeSettings(settings);
+  const questions = buildQuiz(normalizedSettings, progress);
+  if (normalizedSettings.mode !== "mock") {
+    const guidedPractice = normalizedSettings.mode === "random" &&
+      normalizedSettings.examId !== "all" &&
+      questions.some(isOfficerQuestion);
+    return createActiveQuiz(guidedPractice ? orderQuestions(questions) : questions, { guidedPractice });
+  }
+  const limit = getMockQuestionLimit(normalizedSettings, questions.length);
   return createActiveQuiz(questions.slice(0, limit), {
     examMode: true,
     startedAt: Date.now(),
-    durationSeconds: getMockDurationMinutes(settings) * 60,
+    durationSeconds: getMockDurationMinutes(normalizedSettings) * 60,
   });
 }
 
@@ -669,6 +998,15 @@ function canSelectMockChoice(quiz, question) {
   return !target || group.answered < target;
 }
 
+function getAnsweredQuizStatus(quiz, question) {
+  if (!question || !Number.isInteger(quiz.selections?.[question.id])) return "answering";
+  const answer = [...quiz.answers].reverse().find((item) => item.questionId === question.id);
+  if (!answer) return "answering";
+  if (answer.correct === true) return "correct";
+  if (answer.correct === false) return "incorrect";
+  return "ungraded";
+}
+
 function getQuestionNavLabel(question, fallbackIndex) {
   if (Number.isInteger(question.questionNumber)) return question.questionNumber;
   return fallbackIndex + 1;
@@ -684,12 +1022,100 @@ function App() {
   const [settings, setSettings] = useState(initial.settings);
   const [progress, setProgress] = useState(initial.progress);
   const [quiz, setQuiz] = useState(initial.quiz);
-  const [activeView, setActiveView] = useState("landing");
+  const [landingTrack, setLandingTrack] = useState(getEntryTrackFromLocation);
+  const [activeView, setActiveView] = useState(() => window.location.pathname === "/admin" ? "admin" : "landing");
+  const [activeMaterialLessonId, setActiveMaterialLessonId] = useState(null);
+  const [materialCheckpointChoice, setMaterialCheckpointChoice] = useState(null);
+  const [materialCheckpointResult, setMaterialCheckpointResult] = useState(null);
   const [isBankLoading, setIsBankLoading] = useState(questionBank.length === 0);
   const [bankVersion, setBankVersion] = useState(0);
   const [bankError, setBankError] = useState("");
   const [now, setNow] = useState(Date.now());
   const [mockCountdown, setMockCountdown] = useState(null);
+  const [practiceSidebarHidden, setPracticeSidebarHidden] = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authSession, setAuthSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(authConfigReady);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [authDialogMode, setAuthDialogMode] = useState("signin");
+  const [cloudSync, setCloudSync] = useState({ status: "idle", updatedAt: null, error: "" });
+  const [cloudReady, setCloudReady] = useState(false);
+  const [adminAccess, setAdminAccess] = useState("idle");
+  const [announcements, setAnnouncements] = useState([]);
+  const [dismissedAnnouncementId, setDismissedAnnouncementId] = useState(null);
+  const [supportDialog, setSupportDialog] = useState(null);
+  const [membership, setMembership] = useState({ premium: false, status: "free", plan: null });
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [billingError, setBillingError] = useState("");
+  const [checkoutNotice, setCheckoutNotice] = useState(() => new URLSearchParams(window.location.search).get("checkout"));
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setAuthSession(data.session ?? null);
+      setAuthUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      setAuthSession(session ?? null);
+      setAuthUser(session?.user ?? null);
+      setAuthLoading(false);
+      if (event === "SIGNED_IN") setAuthDialogOpen(false);
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthDialogMode("update-password");
+        setAuthDialogOpen(true);
+      }
+      if (event === "SIGNED_OUT") {
+        setCloudReady(false);
+        setCloudSync({ status: "idle", updatedAt: null, error: "" });
+        setAdminAccess("denied");
+        setActiveView((current) => ["account", "admin"].includes(current) ? "landing" : current);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const devAdmin = import.meta.env.DEV && import.meta.env.VITE_MEMEMO_DEV_ADMIN === "1";
+    if (authLoading) return undefined;
+    const accessToken = authSession?.access_token ?? "";
+    if (!accessToken && !devAdmin) {
+      setAdminAccess("denied");
+      return undefined;
+    }
+    let cancelled = false;
+    setAdminAccess("checking");
+    checkAdminAccess(accessToken)
+      .then((result) => {
+        if (!cancelled) setAdminAccess(result.admin ? "granted" : "denied");
+      })
+      .catch(() => {
+        if (!cancelled) setAdminAccess("denied");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, authSession?.access_token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadPublicAnnouncements().then((items) => {
+      if (!cancelled) setAnnouncements(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     saveProgress(progress);
@@ -700,10 +1126,107 @@ function App() {
   }, [settings]);
 
   useEffect(() => {
+    if (!authUser?.id) {
+      setCloudReady(false);
+      return undefined;
+    }
     let cancelled = false;
-    loadQuestionBank()
-      .then(() => {
+    setCloudReady(false);
+    setCloudSync({ status: "loading", updatedAt: null, error: "" });
+    loadUserLearningState(authUser.id)
+      .then((remoteState) => {
         if (cancelled) return;
+        setProgress((localProgress) => {
+          const mergedProgress = mergeLearningState(localProgress, remoteState?.progress);
+          setSettings((localSettings) => sanitizeSyncedSettings(remoteState?.settings, mergedProgress, localSettings));
+          return mergedProgress;
+        });
+        setCloudReady(true);
+        setCloudSync({
+          status: "synced",
+          updatedAt: remoteState?.updated_at ?? new Date().toISOString(),
+          error: "",
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCloudReady(false);
+        setCloudSync({
+          status: "error",
+          updatedAt: null,
+          error: error instanceof Error ? error.message : "学習データを読み込めませんでした。",
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!cloudReady || !authUser?.id) return undefined;
+    const timer = window.setTimeout(() => {
+      setCloudSync((current) => ({ ...current, status: "saving", error: "" }));
+      saveUserLearningState(authUser.id, progress, settings)
+        .then(() => setCloudSync({ status: "synced", updatedAt: new Date().toISOString(), error: "" }))
+        .catch((error) => setCloudSync((current) => ({
+          ...current,
+          status: "error",
+          error: error instanceof Error ? error.message : "学習データを保存できませんでした。",
+        })));
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [authUser?.id, cloudReady, progress, settings]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setLandingTrack(getEntryTrackFromLocation());
+      setActiveView(window.location.pathname === "/admin" ? "admin" : "landing");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (activeView !== "admin" && window.location.pathname === "/admin") {
+      window.history.replaceState({}, "", "/");
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    const isOfficerTrack = landingTrack === "officer";
+    document.title = isOfficerTrack
+      ? "一般幹部候補生等採用試験の問題演習 | Mememo"
+      : "日商簿記2級・3級の問題演習 | Mememo";
+    const description = document.querySelector('meta[name="description"]');
+    if (description) {
+      description.setAttribute(
+        "content",
+        isOfficerTrack
+          ? "防衛省・自衛隊が公開している一般幹部候補生等採用試験の一般教養・専門択一を演習できます。"
+          : "日商簿記2級・3級を、2026年度の出題区分を参照したオリジナル問題で演習できます。",
+      );
+    }
+  }, [landingTrack]);
+
+  useEffect(() => {
+    if (!authConfigReady) return;
+    const contact = new URLSearchParams(window.location.search).get("contact");
+    if (contact === "commerce") setSupportDialog({ type: "contact", question: null });
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return undefined;
+    let cancelled = false;
+    const accessToken = authSession?.access_token ?? "";
+    setIsBankLoading(true);
+    setBankError("");
+    Promise.all([
+      getMembership(accessToken),
+      loadQuestionBank({ accessToken, force: true }),
+    ])
+      .then(([nextMembership]) => {
+        if (cancelled) return;
+        setMembership(nextMembership);
         setBankVersion((version) => version + 1);
         setIsBankLoading(false);
         setQuiz(createQuizForSettings(settings, progress));
@@ -716,7 +1239,25 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authLoading, authSession?.access_token]);
+
+  useEffect(() => {
+    if (checkoutNotice !== "success" || !authSession?.access_token) return undefined;
+    const timer = window.setTimeout(async () => {
+      try {
+        const nextMembership = await getMembership(authSession.access_token);
+        setMembership(nextMembership);
+        if (nextMembership.premium) {
+          await loadQuestionBank({ accessToken: authSession.access_token, force: true });
+          setBankVersion((version) => version + 1);
+          setQuiz(createQuizForSettings(settings, progress));
+        }
+      } catch {
+        // The webhook can take a moment; the next page load retries safely.
+      }
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [checkoutNotice, authSession?.access_token]);
 
   useEffect(() => {
     if (quiz.startedAt) setNow(Date.now());
@@ -746,6 +1287,15 @@ function App() {
   const statsByBucket = useMemo(() => bucketStats(progress), [progress, bankVersion]);
   const historyEntries = useMemo(() => buildHistoryEntries(progress), [progress, bankVersion]);
   const reviewCandidates = useMemo(() => buildReviewCandidates(progress), [progress, bankVersion]);
+  const dailyPlan = useMemo(
+    () => buildDailyStudyPlan(progress, settings),
+    [progress, settings.enabledPacks, settings.dailyNewQuestionLimit, bankVersion],
+  );
+  const recommendedLesson = useMemo(
+    () => materialLessons.find((lesson) => !["understood", "mastered"].includes(progress.lessonProgress?.[lesson.id]?.status)) ?? materialLessons[0],
+    [progress.lessonProgress],
+  );
+  const activeMaterialLesson = activeMaterialLessonId ? getMaterialLesson(activeMaterialLessonId) : null;
   const mockSecondsRemaining = useMemo(() => {
     if (!quiz.examMode || !quiz.startedAt || !quiz.durationSeconds) return null;
     const elapsed = Math.floor((now - quiz.startedAt) / 1000);
@@ -810,7 +1360,8 @@ function App() {
   }, [categories, enabledPackSet, settings.packId, settings.examId, settings.subject, bankVersion]);
 
   function updateSettings(partial) {
-    const nextSettings = resolveSettings(settings, partial);
+    const resolvedSettings = resolveSettings(settings, partial);
+    const nextSettings = activeView === "quiz" ? normalizePracticeSettings(resolvedSettings) : resolvedSettings;
     setSettings(nextSettings);
     if (nextSettings.mode === "mock" && activeView === "mock") return;
     setQuiz(createQuizForSettings(nextSettings, progress));
@@ -844,24 +1395,110 @@ function App() {
   }
 
   function startQuiz(overrides = {}) {
-    const nextSettings = { ...settings, ...overrides };
+    const nextSettings = normalizePracticeSettings({ ...settings, ...overrides });
     setSettings(nextSettings);
     setQuiz(createQuizForSettings(nextSettings, progress));
     setActiveView("quiz");
   }
 
-  function openPractice() {
-    const nextSettings = {
+  function changeLandingTrack(track) {
+    if (!ENTRY_TRACKS[track] || track === landingTrack) return;
+    window.history.pushState({}, "", ENTRY_TRACKS[track].path);
+    setLandingTrack(track);
+    setActiveView("landing");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openPractice(packId = null) {
+    const selectedPackId = typeof packId === "string" ? packId : null;
+    const nextEnabledSet = new Set(settings.enabledPacks);
+    if (selectedPackId) {
+      getPackMemberIds(selectedPackId).forEach((memberPackId) => nextEnabledSet.add(memberPackId));
+    }
+    const nextEnabled = [...nextEnabledSet];
+    const nextSettings = normalizePracticeSettings({
       ...settings,
-      mode: settings.mode === "weak" ? "weak" : "random",
-    };
+      enabledPacks: nextEnabled,
+      ...(selectedPackId ? { packId: selectedPackId, examId: "all", subject: "すべて", category: "すべて" } : {}),
+      mode: membership.premium && settings.mode === "weak" ? "weak" : "random",
+    });
     setSettings(nextSettings);
+    if (nextEnabled.length !== settings.enabledPacks.length) {
+      setProgress((current) => ({ ...current, enabledPacks: nextEnabled }));
+    }
     setQuiz(createQuizForSettings(nextSettings, progress));
+    setPracticeSidebarHidden(window.matchMedia("(max-width: 640px)").matches);
     setActiveView("quiz");
+  }
+
+  function startTodayStudy() {
+    if (dailyPlan.queue.length === 0) return;
+    setPracticeSidebarHidden(true);
+    setQuiz(createActiveQuiz(dailyPlan.queue, {
+      dailyMode: true,
+      dailyNewQuestionIds: dailyPlan.newQuestionIds,
+    }));
+    setActiveView("quiz");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function rateDailyQuestion(rating) {
+    const question = quiz.questions[quiz.index];
+    if (!question || !quiz.dailyMode || quiz.status === "answering") return;
+    const ratedAt = new Date().toISOString();
+    const isNewDailyQuestion = quiz.dailyNewQuestionIds.includes(question.id);
+    setProgress((current) => {
+      const todayKey = getLocalDateKey(new Date(ratedAt));
+      const completedQuestionIds = current.dailyStudy?.date === todayKey
+        ? current.dailyStudy.completedQuestionIds ?? []
+        : [];
+      const newQuestionIds = current.dailyStudy?.date === todayKey
+        ? current.dailyStudy.newQuestionIds ?? []
+        : [];
+      return {
+        ...current,
+        dailyStudy: {
+          date: todayKey,
+          completedQuestionIds: rating === "again"
+            ? completedQuestionIds
+            : [...new Set([...completedQuestionIds, question.id])],
+          newQuestionIds: isNewDailyQuestion
+            ? [...new Set([...newQuestionIds, question.id])]
+            : newQuestionIds,
+        },
+        attempts: {
+          ...current.attempts,
+          [question.id]: applyReviewRating(current.attempts[question.id], rating, ratedAt),
+        },
+      };
+    });
+    setQuiz((current) => {
+      if (rating === "again") {
+        return {
+          ...current,
+          questions: [...current.questions, question],
+          index: current.index + 1,
+          selectedChoice: null,
+          status: "answering",
+        };
+      }
+      if (current.index >= current.questions.length - 1) return { ...current, status: "complete" };
+      return {
+        ...current,
+        index: current.index + 1,
+        selectedChoice: null,
+        status: "answering",
+      };
+    });
   }
 
   function openMockSetup() {
-    const mockPackIds = new Set(["itpass", "basic-info", "applied-info", "officer-kyouyou", "officer-senmon"]);
+    if (!membership.premium) {
+      setBillingError("");
+      setUpgradeDialogOpen(true);
+      return;
+    }
+    const mockPackIds = new Set(["bookkeeping-2", "bookkeeping-3", "officer-kyouyou", "officer-senmon"]);
     const packId = settings.packId === "officer-candidate"
       ? "officer-kyouyou"
       : mockPackIds.has(settings.packId)
@@ -889,9 +1526,77 @@ function App() {
   function startQuestionSet(questions, overrides = {}) {
     const nextQuestions = questions.filter(Boolean);
     if (nextQuestions.length === 0) return;
-    setSettings({ ...settings, ...overrides });
+    const nextSettings = { ...settings, ...overrides };
+    setSettings(nextSettings);
     setQuiz(createActiveQuiz(nextQuestions));
     setActiveView("quiz");
+  }
+
+  function openMaterials() {
+    setActiveMaterialLessonId(null);
+    setActiveView("materials");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openMaterialLesson(lessonId) {
+    const lesson = getMaterialLesson(lessonId);
+    if (!lesson) return;
+    const openedAt = new Date().toISOString();
+    setActiveMaterialLessonId(lessonId);
+    setMaterialCheckpointChoice(null);
+    setMaterialCheckpointResult(null);
+    setProgress((current) => ({
+      ...current,
+      lessonProgress: {
+        ...(current.lessonProgress ?? {}),
+        [lessonId]: {
+          ...(current.lessonProgress?.[lessonId] ?? {}),
+          status: ["understood", "mastered"].includes(current.lessonProgress?.[lessonId]?.status)
+            ? current.lessonProgress[lessonId].status
+            : "in_progress",
+          lastOpenedAt: openedAt,
+        },
+      },
+    }));
+    setActiveView("material");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function checkMaterialAnswer() {
+    if (!activeMaterialLesson || !Number.isInteger(materialCheckpointChoice)) return;
+    const correct = materialCheckpointChoice === activeMaterialLesson.checkpoint.answer;
+    const checkedAt = new Date().toISOString();
+    setMaterialCheckpointResult(correct ? "correct" : "incorrect");
+    setProgress((current) => ({
+      ...current,
+      lessonProgress: {
+        ...(current.lessonProgress ?? {}),
+        [activeMaterialLesson.id]: {
+          ...(current.lessonProgress?.[activeMaterialLesson.id] ?? {}),
+          status: correct ? "understood" : "needs_review",
+          checkpointCorrect: correct,
+          lastCheckedAt: checkedAt,
+          ...(correct ? { completedAt: checkedAt } : {}),
+        },
+      },
+    }));
+  }
+
+  function startMaterialQuestions(lesson) {
+    const filters = lesson.relatedQuestionFilters;
+    const packQuestions = questionBank
+      .filter((question) => question.packId === filters.packId)
+      .filter((question) => Number.isInteger(question.answer) && Array.isArray(question.choices));
+    const categoryQuestions = packQuestions.filter((question) => filters.categories.includes(question.category));
+    const questions = (categoryQuestions.length > 0 ? categoryQuestions : packQuestions).slice(0, 5);
+    startQuestionSet(questions, {
+      packId: filters.packId,
+      examId: "all",
+      subject: "すべて",
+      category: "すべて",
+      mode: "random",
+      order: "ordered",
+    });
   }
 
   function answerQuestion(choiceIndex) {
@@ -934,14 +1639,7 @@ function App() {
           history: [historyEntry, ...(currentProgress.history ?? [])].slice(0, 500),
           attempts: {
             ...currentProgress.attempts,
-            [question.id]: {
-              total: previous.total + 1,
-              correct: previous.correct + (correct === true ? 1 : 0),
-              wrong: previous.wrong + (correct === false ? 1 : 0),
-              ungraded: (previous.ungraded ?? 0) + (correct === null ? 1 : 0),
-              lastResult: correct === null ? "ungraded" : correct ? "correct" : "wrong",
-              lastAt: answeredAt,
-            },
+            [question.id]: updateAttemptForAnswer(previous, correct, answeredAt),
           },
         };
       });
@@ -950,6 +1648,10 @@ function App() {
         ...current,
         selectedChoice: choiceIndex,
         status: nextStatus,
+        selections: {
+          ...current.selections,
+          [question.id]: choiceIndex,
+        },
         answers: [
           ...current.answers,
           {
@@ -957,6 +1659,7 @@ function App() {
             packId: question.packId,
             subject: question.subject,
             category: question.category,
+            choiceIndex,
             correct,
           },
         ],
@@ -967,7 +1670,7 @@ function App() {
   function nextQuestion() {
     setQuiz((current) => {
       if (current.index === current.questions.length - 1) {
-        if (current.examMode) return current;
+        if (current.examMode || current.guidedPractice) return current;
         const refill = buildQuiz(settings, progress);
         if (refill.length === 0) return current;
         return {
@@ -978,11 +1681,12 @@ function App() {
           status: "answering",
         };
       }
+      const nextQuestionItem = current.questions[current.index + 1];
       return {
         ...current,
         index: current.index + 1,
-        selectedChoice: current.examMode ? current.selections[current.questions[current.index + 1]?.id] ?? null : null,
-        status: "answering",
+        selectedChoice: current.selections[nextQuestionItem?.id] ?? null,
+        status: current.examMode ? "answering" : getAnsweredQuizStatus(current, nextQuestionItem),
       };
     });
   }
@@ -993,8 +1697,8 @@ function App() {
       return {
         ...current,
         index: current.index - 1,
-        selectedChoice: current.examMode ? current.selections[current.questions[current.index - 1]?.id] ?? null : null,
-        status: "answering",
+        selectedChoice: current.selections[current.questions[current.index - 1]?.id] ?? null,
+        status: current.examMode ? "answering" : getAnsweredQuizStatus(current, current.questions[current.index - 1]),
       };
     });
   }
@@ -1006,8 +1710,8 @@ function App() {
       return {
         ...current,
         index,
-        selectedChoice: current.examMode ? current.selections[question.id] ?? null : null,
-        status: current.examMode ? "answering" : current.status,
+        selectedChoice: current.selections[question.id] ?? null,
+        status: current.examMode ? "answering" : getAnsweredQuizStatus(current, question),
       };
     });
   }
@@ -1056,12 +1760,7 @@ function App() {
             answeredAt,
           });
           nextAttempts[question.id] = {
-            total: previous.total + 1,
-            correct: previous.correct + (answer.correct === true ? 1 : 0),
-            wrong: previous.wrong + (answer.correct === false ? 1 : 0),
-            ungraded: (previous.ungraded ?? 0) + (answer.correct === null ? 1 : 0),
-            lastResult: answer.correct === null ? "ungraded" : answer.correct ? "correct" : "wrong",
-            lastAt: answeredAt,
+            ...updateAttemptForAnswer(previous, answer.correct, answeredAt),
           };
         }
 
@@ -1115,24 +1814,41 @@ function App() {
 
   useEffect(() => {
     function handleKeyDown(event) {
-      if (activeView !== "quiz") return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
-      if (quiz.status === "empty" || quiz.status === "complete") return;
 
       const key = event.key.toLowerCase();
+      if (key === "escape" && shortcutHelpOpen) {
+        event.preventDefault();
+        setShortcutHelpOpen(false);
+        return;
+      }
+
+      if (key === "/") {
+        event.preventDefault();
+        setShortcutHelpOpen((open) => !open);
+        return;
+      }
+
+      if (shortcutHelpOpen || activeView !== "quiz") return;
+      if (quiz.status === "empty" || quiz.status === "complete") return;
+
       const choiceIndex = choiceShortcutKeys.indexOf(key);
       if (choiceIndex >= 0) {
         const currentQuestion = quiz.questions[quiz.index];
         if (quiz.status === "answering" && currentQuestion?.choices?.[choiceIndex] != null) {
           event.preventDefault();
           answerQuestion(choiceIndex);
+        } else if (quiz.dailyMode && choiceIndex < reviewRatingOptions.length) {
+          event.preventDefault();
+          rateDailyQuestion(reviewRatingOptions[choiceIndex].id);
         }
         return;
       }
 
       if (key === nextShortcutKey) {
         event.preventDefault();
+        if (quiz.dailyMode) return;
         nextQuestion();
         return;
       }
@@ -1145,13 +1861,89 @@ function App() {
 
     document.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [activeView, quiz]);
+  }, [activeView, quiz, shortcutHelpOpen]);
 
   function resetProgress() {
-    if (!window.confirm("学習履歴とセッション記録をリセットします。よろしいですか？")) return;
+    const destination = authUser ? "この端末とアカウント同期先" : "この端末";
+    if (!window.confirm(`${destination}の学習履歴・復習状況・教材進捗をリセットします。よろしいですか？`)) return;
     const nextProgress = { ...emptyProgress, enabledPacks: settings.enabledPacks };
     setProgress(nextProgress);
     setQuiz(createQuizForSettings(settings, nextProgress));
+  }
+
+  function openContactDialog(question = null) {
+    setSupportDialog({
+      type: question ? "question_report" : "contact",
+      question,
+    });
+  }
+
+  function openAuth(mode = "signin") {
+    setAuthDialogMode(mode);
+    setAuthDialogOpen(true);
+  }
+
+  function openAccount() {
+    if (!authUser) {
+      openAuth("signin");
+      return;
+    }
+    setActiveView("account");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openAdmin() {
+    setActiveView("admin");
+    if (window.location.pathname !== "/admin") window.history.pushState({}, "", "/admin");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function signOut() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+  }
+
+  function requirePremium(action) {
+    if (membership.premium) {
+      action();
+      return true;
+    }
+    setBillingError("");
+    setUpgradeDialogOpen(true);
+    return false;
+  }
+
+  function openPremiumView(view) {
+    requirePremium(() => setActiveView(view));
+  }
+
+  async function startCheckout(interval) {
+    if (!authUser) {
+      setUpgradeDialogOpen(false);
+      openAuth("signin");
+      return;
+    }
+    setBillingBusy(true);
+    setBillingError("");
+    try {
+      const { url } = await createCheckout(interval);
+      window.location.assign(url);
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "購入手続きを開始できませんでした。");
+      setBillingBusy(false);
+    }
+  }
+
+  async function openBillingPortal() {
+    setBillingBusy(true);
+    setBillingError("");
+    try {
+      const { url } = await createBillingPortal();
+      window.location.assign(url);
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "契約管理画面を開けませんでした。");
+      setBillingBusy(false);
+    }
   }
 
   if (isBankLoading) {
@@ -1174,33 +1966,120 @@ function App() {
 
   const currentQuestion = quiz.questions[quiz.index];
   const isFocusMode = activeView === "quiz" && quiz.examMode && quiz.status === "answering";
-  const hideShellPanels = isFocusMode || activeView === "mock" || activeView === "landing";
-  const mainShellClassName = activeView === "landing"
+  const isPracticeView = activeView === "quiz" && !quiz.examMode;
+  const hideShellPanels = isFocusMode || activeView === "mock" || activeView === "landing" || activeView === "materials" || activeView === "material" || activeView === "account" || activeView === "admin";
+  const hideControlPanel = hideShellPanels || (isPracticeView && (quiz.dailyMode || practiceSidebarHidden));
+  const hideInsightPanel = hideShellPanels || isPracticeView;
+  const mainShellClassName = ["landing", "materials", "material", "account", "admin"].includes(activeView)
     ? "landing-shell"
-    : hideShellPanels
+    : hideControlPanel
       ? "learning-shell focus-learning-shell"
+      : isPracticeView
+        ? "learning-shell practice-learning-shell"
       : "learning-shell";
 
   return (
     <div className={isFocusMode ? "app-shell focus-mode" : "app-shell"}>
+      {shortcutHelpOpen && <ShortcutHelpDialog onClose={() => setShortcutHelpOpen(false)} />}
+      {authDialogOpen && (
+        <AuthDialog
+          initialMode={authDialogMode}
+          onClose={() => setAuthDialogOpen(false)}
+        />
+      )}
+      {upgradeDialogOpen && (
+        <UpgradeDialog
+          user={authUser}
+          membership={membership}
+          busy={billingBusy}
+          error={billingError}
+          onClose={() => setUpgradeDialogOpen(false)}
+          onLogin={() => {
+            setUpgradeDialogOpen(false);
+            openAuth("signin");
+          }}
+          onCheckout={startCheckout}
+          onPortal={openBillingPortal}
+        />
+      )}
+      {authConfigReady && supportDialog && (
+        <SupportDialog
+          request={supportDialog}
+          user={authUser}
+          onClose={() => setSupportDialog(null)}
+        />
+      )}
       {!isFocusMode && <header className="app-header">
-        <button className="brand brand-button" type="button" onClick={() => setActiveView("landing")} aria-label="Mememo ホーム">
-          <span className="brand-mark">M</span>
-          <span>Mememo</span>
-        </button>
+        <div className="header-start">
+          {isPracticeView && !quiz.dailyMode && (
+            <button
+              className="sidebar-toggle-button"
+              type="button"
+              onClick={() => setPracticeSidebarHidden((hidden) => !hidden)}
+              aria-label={practiceSidebarHidden ? "サイドバーを表示" : "サイドバーを非表示"}
+              title={practiceSidebarHidden ? "サイドバーを表示" : "サイドバーを非表示"}
+            >
+              {practiceSidebarHidden ? <PanelLeftOpen aria-hidden="true" size={19} /> : <PanelLeftClose aria-hidden="true" size={19} />}
+            </button>
+          )}
+          <button className="brand brand-button" type="button" onClick={() => setActiveView("landing")} aria-label="Mememo ホーム">
+            <span className="brand-mark">M</span>
+            <span>Mememo</span>
+          </button>
+        </div>
         <nav className="top-nav" aria-label="主要ナビゲーション">
-          <button className={activeView === "landing" ? "active" : ""} type="button" onClick={() => setActiveView("landing")}>ホーム</button>
-          <button className={activeView === "quiz" && !quiz.examMode ? "active" : ""} type="button" onClick={openPractice}>演習</button>
-          <button className={activeView === "mock" ? "active" : ""} type="button" onClick={openMockSetup}>模試</button>
-          <button className={activeView === "review" ? "active" : ""} type="button" onClick={() => setActiveView("review")}>復習</button>
-          <button className={activeView === "history" ? "active" : ""} type="button" onClick={() => setActiveView("history")}>履歴</button>
-          <button className={activeView === "market" ? "active" : ""} type="button" onClick={() => setActiveView("market")}>マーケット</button>
-          <button className={activeView === "stats" ? "active" : ""} type="button" onClick={() => setActiveView("stats")}>進捗</button>
+          <button className={activeView === "landing" ? "active" : ""} type="button" onClick={() => setActiveView("landing")}>今日</button>
+          <button className={["materials", "material"].includes(activeView) ? "active" : ""} type="button" onClick={openMaterials}>教材</button>
+          <button className={activeView === "quiz" ? "active" : ""} type="button" onClick={() => openPractice()}>問題</button>
+          <button className={activeView === "mock" ? "active" : ""} type="button" onClick={openMockSetup}>{!membership.premium && <Lock aria-hidden="true" size={14} />}模試</button>
+          <button className={activeView === "history" ? "active" : ""} type="button" onClick={() => openPremiumView("history")}>{!membership.premium && <Lock aria-hidden="true" size={14} />}記録</button>
+          <button className={activeView === "market" ? "active" : ""} type="button" onClick={() => setActiveView("market")}>その他</button>
+          {authConfigReady && (
+            <button type="button" onClick={() => openContactDialog()}>
+              <MessageSquare aria-hidden="true" size={16} />
+              問い合わせ
+            </button>
+          )}
+          {adminAccess === "granted" && (
+            <button className={activeView === "admin" ? "active" : ""} type="button" onClick={openAdmin}>
+              <LayoutDashboard aria-hidden="true" size={16} />
+              管理
+            </button>
+          )}
         </nav>
+        <div className="header-account" aria-label="アカウント">
+          {authUser ? (
+            <>
+              <button className={membership.premium ? "account-pill premium" : "account-pill"} type="button" onClick={openAccount}>
+                <UserAvatar user={authUser} size="small" />
+                {getUserDisplayName(authUser) || authUser.email || "マイページ"}
+                {membership.premium && <strong>PRO</strong>}
+              </button>
+              <button className="account-button upgrade" type="button" onClick={membership.complimentaryAccess ? openAccount : () => setUpgradeDialogOpen(true)}>
+                {membership.complimentaryAccess ? <Shield aria-hidden="true" size={16} /> : membership.premium ? <CreditCard aria-hidden="true" size={16} /> : <Crown aria-hidden="true" size={16} />}
+                {membership.complimentaryAccess ? "全機能利用可" : membership.premium ? "契約管理" : "有料プラン"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="account-button upgrade" type="button" onClick={() => setUpgradeDialogOpen(true)}>
+                <Crown aria-hidden="true" size={16} />
+                有料プラン
+              </button>
+              <button className="account-button" type="button" onClick={() => openAuth("signin")}>
+                <LogIn aria-hidden="true" size={16} />
+                {authLoading ? "確認中" : "ログイン"}
+              </button>
+            </>
+          )}
+        </div>
+        <button className="mobile-account-button" type="button" onClick={openAccount} aria-label={authUser ? "マイページ" : "ログイン"}>
+          {authUser ? <UserAvatar user={authUser} size="small" /> : <LogIn aria-hidden="true" size={19} />}
+        </button>
       </header>}
 
       <main className={mainShellClassName} id="top">
-        {!hideShellPanels && <aside className="control-panel">
+        {!hideControlPanel && <aside className="control-panel">
           <section className="control-group" aria-label="学習中のデッキ">
             <h2>デッキ</h2>
             <div className="pack-list">
@@ -1222,7 +2101,7 @@ function App() {
             </div>
             <button className="secondary-button compact full-width" type="button" onClick={() => setActiveView("market")}>
               <Plus aria-hidden="true" size={16} />
-              デッキを追加
+              収録範囲を見る
             </button>
           </section>
 
@@ -1261,7 +2140,7 @@ function App() {
               onChange={(packId) => updateSettings({ packId })}
             />
             <FilterButtonList
-              label="試験回"
+              label={bookkeepingPackIds.includes(settings.packId) ? "試験セット" : "試験回"}
               value={settings.examId}
               options={examOptions.map((exam) => ({
                 value: exam.id,
@@ -1288,16 +2167,91 @@ function App() {
         </aside>}
 
         <section className="workbench">
+          {announcements[0] && announcements[0].id !== dismissedAnnouncementId && activeView !== "admin" && (
+            <aside className="site-announcement" aria-label="お知らせ">
+              <Megaphone aria-hidden="true" size={18} />
+              <div>
+                <strong>{announcements[0].title}</strong>
+                <span>{announcements[0].body}</span>
+              </div>
+              {announcements[0].link_url && <a href={announcements[0].link_url}>詳しく見る</a>}
+              <button type="button" onClick={() => setDismissedAnnouncementId(announcements[0].id)} aria-label="お知らせを閉じる"><X aria-hidden="true" size={16} /></button>
+            </aside>
+          )}
+          {checkoutNotice === "success" && (
+            <div className="checkout-notice success" role="status">
+              <Crown aria-hidden="true" size={19} />
+              <span>お申し込みを確認しています。反映されない場合は数秒後に再読み込みしてください。</span>
+              <button type="button" onClick={() => setCheckoutNotice(null)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+          )}
+          {checkoutNotice === "cancelled" && (
+            <div className="checkout-notice" role="status">
+              <span>お申し込みは確定していません。</span>
+              <button type="button" onClick={() => setCheckoutNotice(null)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+          )}
           {activeView === "landing" && (
-            <LandingPage
+            <TodayPage
               packs={activePackStats}
-              enabledPackSet={enabledPackSet}
-              summary={summary}
-              questionCount={questionBank.length}
-              onStart={openPractice}
-              onMock={openMockSetup}
+              plan={dailyPlan}
+              newQuestionLimit={settings.dailyNewQuestionLimit}
+              onChangeNewQuestionLimit={(dailyNewQuestionLimit) => updateSettings({ dailyNewQuestionLimit })}
+              onStart={startTodayStudy}
               onMarket={() => setActiveView("market")}
-              onStats={() => setActiveView("stats")}
+              onHistory={() => openPremiumView("history")}
+              lesson={recommendedLesson}
+              lessonProgress={progress.lessonProgress?.[recommendedLesson.id]}
+              onOpenLesson={() => openMaterialLesson(recommendedLesson.id)}
+            />
+          )}
+
+          {activeView === "materials" && (
+            <MaterialsOverview
+              progress={progress.lessonProgress ?? {}}
+              recommendedLesson={recommendedLesson}
+              onOpenLesson={openMaterialLesson}
+            />
+          )}
+
+          {activeView === "material" && activeMaterialLesson && (
+            <MaterialReader
+              lesson={activeMaterialLesson}
+              progress={progress.lessonProgress?.[activeMaterialLesson.id]}
+              selectedChoice={materialCheckpointChoice}
+              result={materialCheckpointResult}
+              onSelectChoice={(choice) => {
+                setMaterialCheckpointChoice(choice);
+                setMaterialCheckpointResult(null);
+              }}
+              onCheck={checkMaterialAnswer}
+              onBack={openMaterials}
+              onStartQuestions={() => startMaterialQuestions(activeMaterialLesson)}
+            />
+          )}
+
+          {activeView === "account" && authUser && (
+            <AccountView
+              user={authUser}
+              membership={membership}
+              summary={summary}
+              progress={progress}
+              cloudSync={cloudSync}
+              onOpenBilling={() => membership.complimentaryAccess ? undefined : membership.premium ? openBillingPortal() : setUpgradeDialogOpen(true)}
+              onOpenStats={() => setActiveView("stats")}
+              isAdmin={adminAccess === "granted"}
+              onOpenAdmin={openAdmin}
+              onReset={resetProgress}
+              onSignOut={signOut}
+            />
+          )}
+
+          {activeView === "admin" && (
+            <AdminGate
+              access={adminAccess}
+              signedIn={Boolean(authUser)}
+              onLogin={() => openAuth("signin")}
+              onBack={() => setActiveView("landing")}
             />
           )}
 
@@ -1310,8 +2264,12 @@ function App() {
               onPrevious={previousQuestion}
               onJump={jumpToQuestion}
               onSubmitMock={submitMockExam}
-              onReviewMisses={() => startQuiz({ mode: "weak" })}
+              onReviewMisses={() => requirePremium(() => startQuiz({ mode: "weak" }))}
+              onOpenShortcutHelp={() => setShortcutHelpOpen(true)}
+              onReportQuestion={authConfigReady ? openContactDialog : null}
               secondsRemaining={mockSecondsRemaining}
+              onRateReview={rateDailyQuestion}
+              onFinishDaily={() => setActiveView("landing")}
             />
           )}
 
@@ -1381,7 +2339,7 @@ function App() {
           )}
         </section>
 
-        {!hideShellPanels && <aside className="insight-panel">
+        {!hideInsightPanel && <aside className="insight-panel">
           <section>
             <h2>今日の状態</h2>
             <dl className="mini-stats">
@@ -1401,33 +2359,360 @@ function App() {
           </section>
         </aside>}
       </main>
+      {!isFocusMode && (
+        <footer className="app-footer">
+          <span>© 2026 Mememo</span>
+          <span>各試験の実施団体とは関係のない学習支援サービスです。</span>
+          <a href="/terms.html">利用規約</a>
+          <a href="/privacy.html">プライバシーポリシー</a>
+          <a href="/commercial-transactions.html">特定商取引法に基づく表記</a>
+        </footer>
+      )}
     </div>
   );
 }
 
-function LandingPage({ packs, enabledPackSet, summary, questionCount, onStart, onMock, onMarket, onStats }) {
-  const visiblePacks = packs.filter((pack) => isVisiblePackEnabled(pack, enabledPackSet));
-  const featuredPacks = visiblePacks.slice(0, 4);
+const lessonStatusLabels = {
+  not_started: "未学習",
+  in_progress: "学習中",
+  understood: "理解済み",
+  needs_review: "要復習",
+  mastered: "定着",
+};
+
+function getLessonStatus(progress) {
+  return progress?.status ?? "not_started";
+}
+
+function MaterialsOverview({ progress, recommendedLesson, onOpenLesson }) {
+  const [courseId, setCourseId] = useState(recommendedLesson?.courseId ?? materialCourses[0].id);
+  const lessons = getCourseLessons(courseId);
+  const chapters = [...new Set(lessons.map((lesson) => lesson.chapter))];
+  const completedCount = lessons.filter((lesson) => ["understood", "mastered"].includes(getLessonStatus(progress[lesson.id]))).length;
+  const percentage = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
+  const course = materialCourses.find((item) => item.id === courseId) ?? materialCourses[0];
+  const courseRecommendation = lessons.find((lesson) => !["understood", "mastered"].includes(getLessonStatus(progress[lesson.id]))) ?? lessons[0];
+
+  return (
+    <div className="materials-page">
+      <header className="materials-heading">
+        <div>
+          <span className="materials-eyebrow"><BookOpen aria-hidden="true" size={16} /> 理解してから解く</span>
+          <h1>簿記の教材</h1>
+          <p>1レッスン5〜10分。要点と例を読み、1問だけ確認してから関連問題へ進みます。</p>
+        </div>
+        <button className="materials-recommended-button" type="button" onClick={() => onOpenLesson(courseRecommendation.id)}>
+          <span>次におすすめ</span>
+          <strong>{courseRecommendation.title}</strong>
+          <ChevronRight aria-hidden="true" size={20} />
+        </button>
+      </header>
+
+      <div className="materials-course-tabs" role="tablist" aria-label="教材コース">
+        {materialCourses.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={courseId === item.id}
+            className={courseId === item.id ? "active" : ""}
+            onClick={() => setCourseId(item.id)}
+          >
+            <strong>{item.title}</strong>
+            <span>{item.subtitle}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="materials-layout">
+        <main className="materials-curriculum">
+          {chapters.map((chapter) => (
+            <section className="materials-chapter" key={chapter}>
+              <h2>{chapter}</h2>
+              <div className="material-lesson-list">
+                {lessons.filter((lesson) => lesson.chapter === chapter).map((lesson, index) => {
+                  const status = getLessonStatus(progress[lesson.id]);
+                  return (
+                    <button className={`material-lesson-row status-${status}`} type="button" key={lesson.id} onClick={() => onOpenLesson(lesson.id)}>
+                      <span className="material-lesson-index" aria-hidden="true">
+                        {["understood", "mastered"].includes(status) ? <Check size={16} /> : index + 1}
+                      </span>
+                      <span className="material-lesson-copy">
+                        <span className="material-lesson-meta">{lesson.id} · 約{lesson.estimatedMinutes}分</span>
+                        <strong>{lesson.title}</strong>
+                        <small>{lesson.summary}</small>
+                      </span>
+                      <span className={`material-status status-${status}`}>{lessonStatusLabels[status]}</span>
+                      <ChevronRight className="material-row-chevron" aria-hidden="true" size={20} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </main>
+
+        <aside className="materials-progress-card">
+          <span>{course.title}</span>
+          <strong>{percentage}<small>%</small></strong>
+          <div className="materials-progress-track" aria-label={`${percentage}% 完了`}><span style={{ width: `${percentage}%` }} /></div>
+          <p>{completedCount} / {lessons.length} レッスン完了</p>
+          <hr />
+          <h2>学習の流れ</h2>
+          <ol>
+            <li><span>1</span>要点を読む</li>
+            <li><span>2</span>例で確認する</li>
+            <li><span>3</span>1問チェック</li>
+            <li><span>4</span>関連問題を解く</li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function JournalEntry({ debit, credit }) {
+  if (!debit?.length || !credit?.length) return null;
+  return (
+    <div className="journal-entry" aria-label="仕訳例">
+      <div className="journal-side debit"><span>借方</span>{debit.map((item) => <div key={`${item.account}-${item.amount}`}><strong>{item.account}</strong><b>{item.amount}</b></div>)}</div>
+      <div className="journal-side credit"><span>貸方</span>{credit.map((item) => <div key={`${item.account}-${item.amount}`}><strong>{item.account}</strong><b>{item.amount}</b></div>)}</div>
+    </div>
+  );
+}
+
+function MaterialSection({ section, number }) {
+  return (
+    <section className={`material-section type-${section.type}`} id={`material-section-${number}`}>
+      <div className="material-section-number">{String(number).padStart(2, "0")}</div>
+      <div className="material-section-body">
+        <h2>{section.title}</h2>
+        {section.body && <p>{section.body}</p>}
+        {section.items && (
+          section.type === "flow"
+            ? <div className="material-flow">{section.items.map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong>{index < section.items.length - 1 && <ChevronRight aria-hidden="true" size={18} />}</div>)}</div>
+            : <ul>{section.items.map((item) => <li key={item}>{item}</li>)}</ul>
+        )}
+        {section.scenario && <div className="material-scenario"><span>例題</span><p>{section.scenario}</p></div>}
+        <JournalEntry debit={section.debit} credit={section.credit} />
+        {section.explanation && <p className="material-explanation">{section.explanation}</p>}
+      </div>
+    </section>
+  );
+}
+
+function MaterialReader({ lesson, progress, selectedChoice, result, onSelectChoice, onCheck, onBack, onStartQuestions }) {
+  const completed = ["understood", "mastered"].includes(getLessonStatus(progress));
+  return (
+    <div className="material-reader-page">
+      <button className="material-back-button" type="button" onClick={onBack}><ArrowLeft aria-hidden="true" size={18} />教材一覧</button>
+      <div className="material-reader-layout">
+        <article className="material-reader">
+          <header className="material-reader-header">
+            <span>{lesson.chapter}</span>
+            <div><small>{lesson.id}</small><small><Clock aria-hidden="true" size={14} />約{lesson.estimatedMinutes}分</small></div>
+            <h1>{lesson.title}</h1>
+            <p>{lesson.summary}</p>
+          </header>
+
+          <section className="material-objectives">
+            <strong>このレッスンでできるようになること</strong>
+            <ul>{lesson.objectives.map((objective) => <li key={objective}><Check aria-hidden="true" size={15} />{objective}</li>)}</ul>
+          </section>
+
+          {lesson.sections.map((section, index) => <MaterialSection key={`${lesson.id}-${section.title}`} section={section} number={index + 1} />)}
+
+          <section className="material-checkpoint" aria-labelledby="checkpoint-title">
+            <div className="checkpoint-label"><CheckCircle2 aria-hidden="true" size={18} />理解チェック</div>
+            <h2 id="checkpoint-title">{lesson.checkpoint.prompt}</h2>
+            <div className="checkpoint-choices">
+              {lesson.checkpoint.choices.map((choice, index) => (
+                <button
+                  key={choice}
+                  type="button"
+                  className={selectedChoice === index ? "selected" : ""}
+                  aria-pressed={selectedChoice === index}
+                  onClick={() => onSelectChoice(index)}
+                ><span>{index + 1}</span>{choice}</button>
+              ))}
+            </div>
+            {!result && <button className="checkpoint-submit" type="button" disabled={!Number.isInteger(selectedChoice)} onClick={onCheck}>答えを確認する</button>}
+            {result && (
+              <div className={`checkpoint-feedback ${result}`} role="status">
+                <strong>{result === "correct" ? "正解です。この内容は理解済みになりました。" : "もう一度、要点を見直してみましょう。"}</strong>
+                <p>{lesson.checkpoint.explanation}</p>
+                {result === "incorrect" && <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>上から読み直す</button>}
+              </div>
+            )}
+          </section>
+
+          {(result === "correct" || completed) && (
+            <section className="material-next-step">
+              <div><span>次のステップ</span><h2>関連する問題で定着させる</h2><p>この教材に対応した問題を5問だけ解きます。</p></div>
+              <button type="button" onClick={onStartQuestions}>関連問題を解く<ChevronRight aria-hidden="true" size={19} /></button>
+            </section>
+          )}
+        </article>
+
+        <aside className="material-reader-nav">
+          <span>このレッスン</span>
+          <ol>{lesson.sections.map((section, index) => <li key={section.title}><a href={`#material-section-${index + 1}`}><span>{index + 1}</span>{section.title}</a></li>)}</ol>
+          <a href="#checkpoint-title"><span>{lesson.sections.length + 1}</span>理解チェック</a>
+          <div className={`material-status status-${getLessonStatus(progress)}`}>{lessonStatusLabels[getLessonStatus(progress)]}</div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function TodayPage({ packs, plan, newQuestionLimit, onChangeNewQuestionLimit, onStart, onMarket, onHistory, lesson, lessonProgress, onOpenLesson }) {
+  const complete = plan.queue.length === 0;
+  const packLabel = packs.filter((pack) => pack.questionCount > 0).slice(0, 2).map((pack) => pack.label).join("・");
+  return (
+    <div className="today-page">
+      <section className={complete ? "today-mission complete" : "today-mission"} aria-label="今日の学習">
+        <div className="today-mission-main">
+          <h1>{complete ? "今日の学習は完了しました" : "今日やること"}</h1>
+          <p>{complete ? "次の復習日まで、今日はここで終わりです。" : `この${plan.queue.length}問だけで、今日の学習は完了です。`}</p>
+          {!complete && (
+            <dl className="today-queue-summary">
+              <div className="review"><dt>復習</dt><dd>{plan.reviewCount}<small>問</small></dd></div>
+              <div className="new"><dt>新しい問題</dt><dd>{plan.newCount}<small>問</small></dd></div>
+              <div className="time"><dt>目安</dt><dd>{plan.estimatedMinutes}<small>分</small></dd></div>
+            </dl>
+          )}
+          {complete ? (
+            <div className="today-done-mark"><Check aria-hidden="true" size={24} /><span>今日やることはありません</span></div>
+          ) : (
+            <button className="today-start-button" type="button" onClick={onStart}>
+              <ListChecks aria-hidden="true" size={22} />
+              今日の学習を始める
+            </button>
+          )}
+          <label className="daily-new-limit-control">
+            <span>1日の新規カード上限</span>
+            <select
+              value={normalizeDailyNewQuestionLimit(newQuestionLimit)}
+              onChange={(event) => onChangeNewQuestionLimit(normalizeDailyNewQuestionLimit(event.target.value))}
+              aria-label="1日の新規カード上限"
+            >
+              {dailyNewQuestionLimitOptions.map((value) => (
+                <option key={value} value={value}>
+                  {value === UNLIMITED_DAILY_NEW_QUESTIONS ? "無制限" : `${value}問`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <aside className="today-streak" aria-label="継続日数">
+          <div className="today-streak-ring" style={{ "--streak-progress": `${Math.min(100, (plan.streak / 7) * 100)}%` }}>
+            <span>今週</span>
+            <strong>{plan.streak}</strong>
+            <small>日継続</small>
+          </div>
+          <p>{plan.streak > 0 ? "今日も少しだけ続けましょう" : "今日から記録が始まります"}</p>
+        </aside>
+      </section>
+
+      {lesson && (
+        <section className="today-material-card" aria-label="今日の教材">
+          <div className="today-material-icon"><BookOpen aria-hidden="true" size={24} /></div>
+          <div>
+            <span>今日の教材 · 約{lesson.estimatedMinutes}分</span>
+            <h2>{lesson.title}</h2>
+            <p>{lesson.summary}</p>
+          </div>
+          <span className={`material-status status-${getLessonStatus(lessonProgress)}`}>{lessonStatusLabels[getLessonStatus(lessonProgress)]}</span>
+          <button type="button" onClick={onOpenLesson}>{getLessonStatus(lessonProgress) === "in_progress" ? "続きから" : "教材を始める"}<ChevronRight aria-hidden="true" size={18} /></button>
+        </section>
+      )}
+
+      <section className="today-forecast" aria-label="これからの復習">
+        <div className="today-forecast-heading">
+          <div><Clock aria-hidden="true" size={20} /><h2>これからの復習</h2></div>
+          <span>回答後に、次の復習日を決めます。</span>
+        </div>
+        <div className="today-forecast-days">
+          {plan.forecast.map((item) => (
+            <div key={item.day}>
+              <span>{item.day === 1 ? "明日" : `${item.day}日後`}</span>
+              <strong>{item.count}</strong>
+              <small>問</small>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="today-secondary-actions">
+        <span>学習対象: {packLabel || "選択中のセット"}</span>
+        <div>
+          <button type="button" onClick={onMarket}><Plus aria-hidden="true" size={16} />出題設定</button>
+          <button type="button" onClick={onHistory}><History aria-hidden="true" size={16} />学習記録</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LandingPage({ packs, enabledPackSet, summary, track, premium, onStart, onTrackChange, onMarket, onStats, onUpgrade }) {
+  const isOfficerTrack = track === "officer";
+  const trackPackIds = new Set(isOfficerTrack ? ["officer-candidate"] : bookkeepingPackIds);
+  const featuredPacks = packs.filter((pack) => trackPackIds.has(pack.id));
+  const trackQuestionCount = featuredPacks.reduce((total, pack) => total + pack.totalQuestions, 0);
+  const trackCopy = isOfficerTrack
+    ? {
+        eyebrow: "防衛省・自衛隊 公開問題",
+        title: "一般幹部候補生等採用試験を、本試験形式で演習",
+        description: "防衛省・自衛隊の幹部を目指す方向けに、一般教養・専門択一の公開問題を試験回ごとに整理しています。",
+        primaryLabel: "幹部候補生の演習を始める",
+        sectionTitle: "一般幹部候補生等の問題セット",
+        defaultPackId: "officer-candidate",
+      }
+    : {
+        eyebrow: "日商簿記 2級・3級",
+        title: "日商簿記2級・3級を、問題演習で身につける",
+        description: "仕訳・帳簿・決算から商業簿記・工業簿記まで、2026年度の出題区分を参照したオリジナル問題で学べます。",
+        primaryLabel: "簿記の演習を始める",
+        sectionTitle: "簿記の問題セット",
+        defaultPackId: "bookkeeping-2",
+      };
   const totalAttempts = summary.total.toLocaleString("ja-JP");
-  const totalQuestions = questionCount.toLocaleString("ja-JP");
+  const totalQuestions = trackQuestionCount.toLocaleString("ja-JP");
 
   return (
     <div className="landing-page">
-      <section className="landing-hero" aria-label="Mememo の概要">
+      <nav className="entry-track-switcher" aria-label="学習分野を選択">
+        <span>学習したい分野</span>
+        <div role="group" aria-label="学習分野">
+          <a className={!isOfficerTrack ? "active" : ""} href="/" onClick={(event) => { event.preventDefault(); onTrackChange("bookkeeping"); }}>
+            <Calculator aria-hidden="true" size={18} />
+            簿記を学ぶ
+          </a>
+          <a className={isOfficerTrack ? "active" : ""} href="/officer" onClick={(event) => { event.preventDefault(); onTrackChange("officer"); }}>
+            <Shield aria-hidden="true" size={18} />
+            一般幹部候補生等を学ぶ
+          </a>
+        </div>
+        <small>あとから両方を学習対象に追加できます</small>
+      </nav>
+
+      <section className={`landing-hero ${isOfficerTrack ? "officer-entry" : "bookkeeping-entry"}`} aria-label={`${trackCopy.eyebrow} 演習サイトの概要`}>
         <div className="landing-hero-copy">
-          <h1>公式問題で、毎日の演習を迷わず進める</h1>
-          <p>
-            ITパスポート、基本情報、応用情報、幹部候補生等の公開問題を、
-            出典画像と選択肢カードで集中して解けます。
-          </p>
+          <span className="landing-eyebrow">{trackCopy.eyebrow}</span>
+          <h1>{trackCopy.title}</h1>
+          <p>{trackCopy.description}</p>
           <div className="landing-actions">
-            <button className="primary-button" type="button" onClick={onStart}>
+            <button className="primary-button" type="button" onClick={() => onStart(trackCopy.defaultPackId)}>
               <ListChecks aria-hidden="true" size={18} />
-              すぐ演習する
+              {trackCopy.primaryLabel}
             </button>
             <button className="secondary-button" type="button" onClick={onMarket}>
               <Plus aria-hidden="true" size={18} />
-              収録セットを見る
+              学習セットを管理
+            </button>
+            <button className="premium-button" type="button" onClick={premium ? onMock : onUpgrade}>
+              {premium ? <TimerReset aria-hidden="true" size={18} /> : <Crown aria-hidden="true" size={18} />}
+              {premium ? "模試を始める" : "全問題を解放する"}
             </button>
           </div>
           <dl className="landing-proof">
@@ -1456,10 +2741,10 @@ function LandingPage({ packs, enabledPackSet, summary, questionCount, onStart, o
           </div>
           <div className="preview-question">
             <strong>問題文</strong>
-            <p>公開問題の本文を読み、最も適切な選択肢を選びます。</p>
+            <p>問題文を読み、根拠を考えて最も適切な選択肢を選びます。</p>
           </div>
           <div className="preview-choices">
-            {["ア", "イ", "ウ", "エ"].map((label, index) => (
+              {["1", "2", "3", "4", "5"].map((label, index) => (
               <div className={index === 1 ? "preview-choice selected" : "preview-choice"} key={label}>
                 <span>{label}</span>
                 <strong>{index === 1 ? "選択中の回答カード" : "回答選択肢カード"}</strong>
@@ -1479,16 +2764,35 @@ function LandingPage({ packs, enabledPackSet, summary, questionCount, onStart, o
       </section>
 
       <section className="landing-feature-grid" aria-label="主な機能">
-        <LandingFeature icon={FileText} title="公式PDF画像" text="問題文と選択肢の横で、公開元の画像を確認できます。" />
-        <LandingFeature icon={Target} title="復習優先" text="ミスや低定着の問題を抽出し、次に解くべき順に並べます。" />
-        <LandingFeature icon={TimerReset} title="模試モード" text="年度と範囲を選び、制限時間付きで一括採点します。" />
+        <LandingFeature icon={FileText} title="出典と編集履歴" text="公式公開問題は出典画像、オリジナル問題は監査済みの解説を確認できます。" />
+        <LandingFeature icon={Target} title="復習優先" text="ミスした問題を復習候補として整理し、解き直せます。" />
+        <LandingFeature icon={TimerReset} title="模試モード" text="試験セットと科目を選び、制限時間付きで演習できます。" />
       </section>
+
+      {!premium && (
+        <section className="premium-callout" aria-label="Mememo 有料プラン">
+          <div>
+            <span className="premium-eyebrow"><Crown aria-hidden="true" size={16} /> Mememo Pro</span>
+            <h2>選んだ問題セットを、最後まで使い切る</h2>
+            <p>無料版は各デッキ12問を体験できます。Proでは全問題、復習、模試、履歴、進捗分析を利用でき、別分野を追加しても同じプランで学べます。</p>
+          </div>
+          <div className="premium-callout-price">
+            <span>月額</span>
+            <strong>¥480</strong>
+            <small>または年額 ¥4,800</small>
+            <button className="premium-button" type="button" onClick={onUpgrade}>プランを見る</button>
+          </div>
+        </section>
+      )}
 
       <section className="landing-packs" aria-label="収録セット">
         <div className="landing-section-heading">
-          <h2>収録セット</h2>
+          <div>
+            <span className="landing-section-kicker">現在の入口</span>
+            <h2>{trackCopy.sectionTitle}</h2>
+          </div>
           <button className="secondary-button compact" type="button" onClick={onMarket}>
-            すべて管理
+            両方の学習セットを管理
           </button>
         </div>
         <div className="landing-pack-list">
@@ -1497,7 +2801,7 @@ function LandingPage({ packs, enabledPackSet, summary, questionCount, onStart, o
               className="landing-pack-row"
               type="button"
               key={pack.id}
-              onClick={onStart}
+              onClick={() => onStart(pack.id)}
               style={{ "--deck-accent": pack.accent }}
             >
               <span className="deck-symbol">
@@ -1505,11 +2809,23 @@ function LandingPage({ packs, enabledPackSet, summary, questionCount, onStart, o
               </span>
               <span>
                 <strong>{pack.label}</strong>
-                <small>{pack.questionCount}問 / 正答率 {pack.rate}%</small>
+                <small>{premium ? `${pack.questionCount}問` : `体験 ${pack.questionCount}問 / 全${pack.totalQuestions}問`} / 正答率 {pack.rate}%</small>
               </span>
-              <Check aria-hidden="true" size={17} />
+              {isVisiblePackEnabled(pack, enabledPackSet)
+                ? <Check aria-label="学習対象に追加済み" size={17} />
+                : <Plus aria-label="演習開始時に学習対象へ追加" size={17} />}
             </button>
           ))}
+        </div>
+        <div className="cross-track-note">
+          <span>{isOfficerTrack ? <Calculator aria-hidden="true" size={18} /> : <Shield aria-hidden="true" size={18} />}</span>
+          <div>
+            <strong>{isOfficerTrack ? "簿記も同じアカウントで学べます" : "一般幹部候補生等の公開問題も収録しています"}</strong>
+            <small>学習セット管理で追加すると、両方を選んだ横断演習もできます。</small>
+          </div>
+          <button className="secondary-button compact" type="button" onClick={() => onTrackChange(isOfficerTrack ? "bookkeeping" : "officer")}>
+            専用ページを見る
+          </button>
         </div>
       </section>
     </div>
@@ -1530,8 +2846,81 @@ function LandingFeature({ icon: Icon, title, text }) {
   );
 }
 
+function UpgradeDialog({ user, membership, busy, error, onClose, onLogin, onCheckout, onPortal }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="modal-panel upgrade-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upgrade-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-heading">
+          <div>
+            <span className="premium-eyebrow"><Crown aria-hidden="true" size={16} /> Mememo Pro</span>
+            <h2 id="upgrade-title">全問題と復習機能を解放</h2>
+            <p>日商簿記2級・3級、幹部候補生等の全627問を、制限なく演習できます。</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="閉じる">
+            <X aria-hidden="true" size={18} />
+          </button>
+        </div>
+
+        <ul className="premium-benefits">
+          <li><Check aria-hidden="true" size={17} />全627問へアクセス</li>
+          <li><Check aria-hidden="true" size={17} />ミス・定着度に基づく復習モード</li>
+          <li><Check aria-hidden="true" size={17} />時間制限付き模試モード</li>
+          <li><Check aria-hidden="true" size={17} />回答履歴と進捗分析</li>
+        </ul>
+
+        {membership.premium ? (
+          <div className="current-plan-card">
+            <strong>Proプランをご利用中です</strong>
+            <span>{membership.plan === "year" ? "年額プラン" : membership.plan === "month" ? "月額プラン" : "有料プラン"}</span>
+            {membership.currentPeriodEnd && (
+              <small>{membership.cancelAtPeriodEnd ? "利用終了予定" : "次回更新"}：{new Date(membership.currentPeriodEnd).toLocaleDateString("ja-JP")}</small>
+            )}
+            <button className="secondary-button" type="button" onClick={onPortal} disabled={busy}>
+              <CreditCard aria-hidden="true" size={17} />契約・支払方法を管理
+            </button>
+          </div>
+        ) : (
+          <div className="pricing-grid">
+            <article className="pricing-card">
+              <span>月額プラン</span>
+              <strong>¥480<small> / 月</small></strong>
+              <p>毎月自動更新。いつでも解約できます。</p>
+              <button className="secondary-button" type="button" onClick={() => user ? onCheckout("month") : onLogin()} disabled={busy || !authConfigReady}>
+                {user ? "月額プランを選ぶ" : "ログインして選ぶ"}
+              </button>
+            </article>
+            <article className="pricing-card recommended">
+              <span className="recommend-badge">2か月分お得</span>
+              <span>年額プラン</span>
+              <strong>¥4,800<small> / 年</small></strong>
+              <p>毎年自動更新。月あたり400円相当。</p>
+              <button className="premium-button" type="button" onClick={() => user ? onCheckout("year") : onLogin()} disabled={busy || !authConfigReady}>
+                {user ? "年額プランを選ぶ" : "ログインして選ぶ"}
+              </button>
+            </article>
+          </div>
+        )}
+
+        {!authConfigReady && <p className="form-status">現在、購入受付の公開準備中です。</p>}
+        {error && <p className="form-status error">{error}</p>}
+        <p className="billing-fine-print">
+          選択後、Stripeの安全な決済画面で注文内容を最終確認します。解約後も支払済み期間の終了まで利用できます。
+          お申し込み前に<a href="/terms.html">利用規約</a>と<a href="/commercial-transactions.html">特定商取引法に基づく表記</a>をご確認ください。
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function PackIcon({ packId }) {
   const common = { "aria-hidden": "true", size: 19 };
+  if (packId.startsWith("bookkeeping-")) return <Calculator {...common} />;
   if (packId === "itpass") return <PlugZap {...common} />;
   if (packId.startsWith("officer-")) return <Shield {...common} />;
   return <PlugZap {...common} />;
@@ -1566,6 +2955,7 @@ function FilterButtonList({ label, value, options, onChange, scrollable = false 
 function MockSetupView({ settings, packs, examOptions, categoryOptions, profile, countdown, onChange, onStart }) {
   const selectedExam = examOptions.find((exam) => exam.id === settings.examId);
   const requiresSpecializedSubject = settings.packId === "officer-senmon";
+  const isBookkeepingPack = bookkeepingPackIds.includes(settings.packId);
   const selectedSpecializedSubject = categoryOptions.find((option) => option.value === settings.category);
   const ready = settings.examId !== "all" && selectedExam && (!requiresSpecializedSubject || settings.category !== "すべて");
   const questionCountLabel = requiresSpecializedSubject
@@ -1573,15 +2963,19 @@ function MockSetupView({ settings, packs, examOptions, categoryOptions, profile,
       ? "専門科目選択後に確定"
       : selectedSpecializedSubject?.detail ?? "専門科目選択後に確定"
     : selectedExam && selectedExam.id !== "all"
-      ? `${selectedExam.count}問`
+      ? profile.questions
+        ? `${profile.questions}問（収録${selectedExam.count}問から抽出）`
+        : `${selectedExam.count}問`
       : "年度選択後に確定";
   const answerRuleLabel = settings.packId === "officer-kyouyou"
     ? "その1は英語必答を含め16問選択、その2は必答"
     : settings.packId === "officer-senmon"
       ? `${settings.category === "すべて" ? "専門科目" : settings.category}から20問選択`
-      : "全問解答";
+      : isBookkeepingPack
+        ? "四肢択一の基礎確認（本試験の大問形式とは異なります）"
+        : "全問解答";
   const unavailableReason = !selectedExam || settings.examId === "all"
-    ? "模試を開始するには年度を選択してください。"
+    ? "模試を開始するには試験セットを選択してください。"
     : requiresSpecializedSubject && (!selectedSpecializedSubject || settings.category === "すべて")
       ? "専門択一の模試を開始するには専門科目を選択してください。"
       : "";
@@ -1590,7 +2984,7 @@ function MockSetupView({ settings, packs, examOptions, categoryOptions, profile,
       <div className="view-heading">
         <div>
           <h2>模試</h2>
-          <p>年度を選んでから開始します。開始後は集中用レイアウトに切り替わります。</p>
+          <p>試験セットを選んでから開始します。開始後は集中用レイアウトに切り替わります。</p>
         </div>
       </div>
 
@@ -1606,7 +3000,7 @@ function MockSetupView({ settings, packs, examOptions, categoryOptions, profile,
             onChange={(packId) => onChange({ packId, mode: "mock" })}
           />
           <FilterButtonList
-            label="年度"
+            label="試験セット"
             value={settings.examId}
             options={examOptions
               .filter((exam) => exam.id !== "all")
@@ -1674,7 +3068,11 @@ function QuizWorkspace({
   onJump,
   onSubmitMock,
   onReviewMisses,
+  onOpenShortcutHelp,
+  onReportQuestion,
   secondsRemaining,
+  onRateReview,
+  onFinishDaily,
 }) {
   if (!question) {
     return (
@@ -1689,6 +3087,16 @@ function QuizWorkspace({
   }
 
   if (quiz.status === "complete") {
+    if (quiz.dailyMode) {
+      return (
+        <section className="today-session-complete" aria-label="今日の学習完了">
+          <div className="today-complete-check"><Check aria-hidden="true" size={34} /></div>
+          <h2>今日の学習は完了しました</h2>
+          <p>{quiz.questions.length}問の復習予定を更新しました。今日はここまでで大丈夫です。</p>
+          <button className="primary-button" type="button" onClick={onFinishDaily}>今日の画面へ戻る</button>
+        </section>
+      );
+    }
     const requiredAnswerCount = quiz.examMode ? getMockRequiredAnswerCount(quiz.questions) : quiz.answers.length;
     const graded = quiz.answers.filter((answer) => answer.correct !== null);
     const correct = graded.filter((answer) => answer.correct).length;
@@ -1811,12 +3219,13 @@ function QuizWorkspace({
   const sourceImages = unavailable ? [] : question.images?.length ? question.images : question.image ? [question.image] : [];
   const quizHeader = getQuizHeader(question);
   const answeredCount = Object.keys(quiz.selections ?? {}).length;
-  const requiredAnswerCount = quiz.examMode ? getMockRequiredAnswerCount(quiz.questions) : quiz.questions.length;
-  const selectionGroup = quiz.examMode ? getOfficerSelectionState(quiz.questions, quiz.selections, question) : null;
+  const usesOfficerNavigator = quiz.questions.some(isOfficerQuestion) && (quiz.examMode || quiz.guidedPractice);
+  const requiredAnswerCount = usesOfficerNavigator ? getMockRequiredAnswerCount(quiz.questions) : quiz.questions.length;
+  const selectionGroup = usesOfficerNavigator ? getOfficerSelectionState(quiz.questions, quiz.selections, question) : null;
   const selectionLimitReached = quiz.examMode && isAnswerableMockQuestion(question) && !canSelectMockChoice(quiz, question);
   const mockTimeLabel = secondsRemaining === null ? "" : formatDuration(secondsRemaining);
   const mockNearlyDone = secondsRemaining !== null && secondsRemaining <= 300;
-  const showOfficerNavigator = quiz.examMode && quiz.questions.some(isOfficerQuestion);
+  const showOfficerNavigator = usesOfficerNavigator;
 
   const questionBody = (
     <>
@@ -1843,7 +3252,7 @@ function QuizWorkspace({
           const isSelected = quiz.selectedChoice === index;
           const className = [
             "choice-button",
-            quiz.examMode && isSelected ? "choice-selected" : "",
+            (quiz.examMode || quiz.guidedPractice) && isSelected ? "choice-selected" : "",
             reveal && isCorrect ? "choice-correct" : "",
             reveal && isSelected && !isCorrect && hasAnswer ? "choice-wrong" : "",
             reveal && isSelected && !hasAnswer ? "choice-selected" : "",
@@ -1862,7 +3271,6 @@ function QuizWorkspace({
               <span>
                 <FormattedInline text={choice} />
               </span>
-              {choiceShortcutKeys[index] && <kbd className="choice-shortcut">{choiceShortcutKeys[index]}</kbd>}
               {reveal && isCorrect && <Check aria-hidden="true" size={17} />}
               {reveal && isSelected && !isCorrect && hasAnswer && <X aria-hidden="true" size={17} />}
             </button>
@@ -1889,18 +3297,6 @@ function QuizWorkspace({
         </details>
       )}
 
-      <div className="quiz-actions">
-        <span className="quiz-position">{quiz.index + 1}/{quiz.questions.length}</span>
-        <div className="question-nav-actions">
-          <button className="secondary-button compact" type="button" onClick={onPrevious} disabled={quiz.index === 0}>
-            前へ <kbd>P</kbd>
-          </button>
-          <button className="primary-button compact" type="button" onClick={onNext} disabled={quiz.examMode && quiz.index === quiz.questions.length - 1}>
-            次へ <kbd>N</kbd>
-          </button>
-        </div>
-      </div>
-
       {reveal && (
         <div className={`feedback ${quiz.status}`}>
           <div>
@@ -1909,11 +3305,63 @@ function QuizWorkspace({
           </div>
         </div>
       )}
+
+      {quiz.dailyMode && reveal ? (
+        <section className="review-rating-panel" aria-label="次の復習日を選択">
+          <div className="review-rating-heading">
+            <strong>この問題の手応えは？</strong>
+            <span>選ぶと次のカードへ進みます</span>
+          </div>
+          <div className="review-rating-options">
+            {reviewRatingOptions.map((option) => (
+              <button className={`review-rating ${option.id}`} type="button" key={option.id} onClick={() => onRateReview(option.id)}>
+                <strong>{option.label}</strong>
+                <span>{option.intervalLabel}</span>
+              </button>
+            ))}
+          </div>
+          {onReportQuestion && (
+            <button className="daily-report-button" type="button" onClick={() => onReportQuestion(question)}>
+              <MessageSquare aria-hidden="true" size={14} />問題を報告
+            </button>
+          )}
+        </section>
+      ) : !quiz.dailyMode ? (
+        <div className="quiz-actions">
+          <span className="quiz-position">{quiz.index + 1}/{quiz.questions.length}</span>
+          <div className="question-nav-actions">
+            {onReportQuestion && (
+              <button className="shortcut-help-hint report-question-button" type="button" onClick={() => onReportQuestion(question)}>
+                <MessageSquare aria-hidden="true" size={15} />
+                この問題を報告
+              </button>
+            )}
+            <button className="shortcut-help-hint" type="button" onClick={() => onOpenShortcutHelp()}>
+              <kbd>/</kbd>
+              ショートカット
+            </button>
+            <button className="secondary-button compact" type="button" onClick={onPrevious} disabled={quiz.index === 0}>
+              前へ <kbd>P</kbd>
+            </button>
+            <button className="primary-button compact" type="button" onClick={onNext} disabled={(quiz.examMode || quiz.guidedPractice) && quiz.index === quiz.questions.length - 1}>
+              次へ <kbd>N</kbd>
+            </button>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 
   return (
-    <section className="quiz-card" aria-label="クイズ">
+    <section className={quiz.dailyMode ? "quiz-card daily-quiz-card" : "quiz-card"} aria-label="クイズ">
+      {quiz.dailyMode && (
+        <div className="daily-study-status">
+          <span>今日の学習</span>
+          <strong>{quiz.index + 1} / {quiz.questions.length}</strong>
+          <div className="progress-track slim"><span style={{ width: `${((quiz.index + 1) / quiz.questions.length) * 100}%` }} /></div>
+          <button type="button" onClick={onFinishDaily}>中断</button>
+        </div>
+      )}
       {quiz.examMode && (
         <div className="mock-status-bar">
           <div className={mockNearlyDone ? "mock-timer urgent" : "mock-timer"}>
@@ -1933,6 +3381,21 @@ function QuizWorkspace({
         </div>
       )}
 
+      {quiz.guidedPractice && (
+        <div className="mock-status-bar practice-status-bar">
+          <div className="mock-timer practice-mode-label">
+            <ListChecks aria-hidden="true" size={18} />
+            <strong>演習</strong>
+          </div>
+          <div className="mock-progress">
+            <span>回答 {answeredCount}/{requiredAnswerCount}</span>
+            <div className="progress-track slim">
+              <span style={{ width: `${requiredAnswerCount > 0 ? Math.min(100, (answeredCount / requiredAnswerCount) * 100) : 0}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {showOfficerNavigator ? (
         <div className="officer-quiz-layout">
           <div className="officer-quiz-main">
@@ -1941,6 +3404,7 @@ function QuizWorkspace({
           <OfficerQuestionNavigator
             quiz={quiz}
             onJump={onJump}
+            mode={quiz.examMode ? "mock" : "practice"}
           />
         </div>
       ) : questionBody}
@@ -1971,19 +3435,772 @@ function QuizWorkspace({
   );
 }
 
-function OfficerQuestionNavigator({ quiz, onJump }) {
+const adminMetricDefinitions = [
+  { key: "users", label: "登録ユーザー", help: "Supabase Auth", icon: Users },
+  { key: "activeSubscriptions", label: "有料会員", help: "active / trialing", icon: Crown },
+  { key: "learningProfiles", label: "同期ユーザー", help: "学習履歴あり", icon: Database },
+  { key: "activeToday", label: "今日の利用", help: "同期更新ベース", icon: BarChart3 },
+  { key: "openSupport", label: "未完了の問い合わせ", help: "要確認・対応中", icon: MessageSquare },
+  { key: "activeAnnouncements", label: "公開中のお知らせ", help: "サイト内表示", icon: Megaphone },
+];
+
+function formatAdminDate(value, withTime = true) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ja-JP", withTime
+    ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+    : { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
+function AdminGate({ access, signedIn, onLogin, onBack }) {
+  if (["idle", "checking"].includes(access)) {
+    return <section className="admin-gate"><RefreshCw className="spin" aria-hidden="true" size={24} /><strong>管理者権限を確認中</strong></section>;
+  }
+  if (access !== "granted") {
+    return (
+      <section className="admin-gate denied">
+        <Shield aria-hidden="true" size={34} />
+        <span>ADMIN ONLY</span>
+        <h1>{signedIn ? "このページにはアクセスできません" : "管理者ログインが必要です"}</h1>
+        <p>{signedIn ? "ログイン中のアカウントには管理者権限がありません。" : "管理者として登録されたアカウントでログインしてください。"}</p>
+        <div>{!signedIn && <button className="primary-button" type="button" onClick={onLogin}><LogIn aria-hidden="true" size={17} />ログイン</button>}<button className="secondary-button" type="button" onClick={onBack}>ホームへ戻る</button></div>
+      </section>
+    );
+  }
+  return <AdminDashboard />;
+}
+
+function AdminDashboard() {
+  const [data, setData] = useState(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function refresh() {
+    setLoading(true);
+    setError("");
+    try {
+      setData(await loadAdminDashboard());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "管理データを取得できませんでした。");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function changeSupportStatus(id, status) {
+    setBusyId(id);
+    setNotice("");
+    try {
+      await updateSupportStatus(id, status);
+      setData((current) => {
+        const previous = current.contacts.find((item) => item.id === id)?.status;
+        const delta = (status !== "closed" ? 1 : 0) - (previous !== "closed" ? 1 : 0);
+        return {
+          ...current,
+          contacts: current.contacts.map((item) => item.id === id ? { ...item, status } : item),
+          metrics: { ...current.metrics, openSupport: Math.max(0, current.metrics.openSupport + delta) },
+        };
+      });
+      setNotice("問い合わせ状態を更新しました。");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "問い合わせを更新できませんでした。");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function publishAnnouncement(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const values = {
+      title: formData.get("title"),
+      body: formData.get("body"),
+      linkUrl: formData.get("linkUrl"),
+    };
+    if (!window.confirm(`「${values.title}」をサイトのお知らせとして公開します。よろしいですか？`)) return;
+    setBusyId("announcement-new");
+    setNotice("");
+    try {
+      await createAnnouncement(values);
+      form.reset();
+      setNotice("お知らせを公開しました。");
+      await refresh();
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : "お知らせを公開できませんでした。");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function toggleAnnouncement(item) {
+    const action = item.is_active ? "非公開" : "再公開";
+    if (!window.confirm(`「${item.title}」を${action}にします。よろしいですか？`)) return;
+    setBusyId(item.id);
+    setNotice("");
+    try {
+      await updateAnnouncement(item.id, { isActive: !item.is_active });
+      setData((current) => ({
+        ...current,
+        announcements: current.announcements.map((announcement) => announcement.id === item.id ? { ...announcement, is_active: !item.is_active } : announcement),
+        metrics: {
+          ...current.metrics,
+          activeAnnouncements: Math.max(0, current.metrics.activeAnnouncements + (item.is_active ? -1 : 1)),
+        },
+      }));
+      setNotice(`お知らせを${action}にしました。`);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "お知らせを更新できませんでした。");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  if (loading && !data) {
+    return <section className="admin-gate"><RefreshCw className="spin" aria-hidden="true" size={24} /><strong>管理データを読み込み中</strong></section>;
+  }
+  if (!data) {
+    return <section className="admin-gate denied"><AlertCircle aria-hidden="true" size={32} /><h1>管理画面を読み込めませんでした</h1><p>{error}</p><button className="secondary-button" type="button" onClick={refresh}>再読み込み</button></section>;
+  }
+
+  const userById = new Map(data.users.map((item) => [item.id, item]));
+  const tabDefinitions = [
+    { id: "overview", label: "概要", icon: LayoutDashboard },
+    { id: "users", label: "ユーザー", icon: Users },
+    { id: "support", label: `問い合わせ ${data.metrics.openSupport}`, icon: MessageSquare },
+    { id: "announcements", label: "お知らせ", icon: Megaphone },
+  ];
+
+  return (
+    <section className="admin-page" aria-labelledby="admin-title">
+      <header className="admin-page-header">
+        <div><span>MEMEMO OPERATIONS</span><h1 id="admin-title">管理ダッシュボード</h1><p>ユーザー、学習状況、契約、問い合わせ、お知らせを一か所で確認できます。</p></div>
+        <div className="admin-header-actions"><small>{data.admin.email}<br />更新 {formatAdminDate(data.generatedAt)}</small><button className="secondary-button compact" type="button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} aria-hidden="true" size={15} />更新</button></div>
+      </header>
+
+      <nav className="admin-tabs" aria-label="管理メニュー">
+        {tabDefinitions.map((tab) => {
+          const Icon = tab.icon;
+          return <button className={activeTab === tab.id ? "active" : ""} type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}><Icon aria-hidden="true" size={16} />{tab.label}</button>;
+        })}
+      </nav>
+
+      {notice && <p className="admin-notice success">{notice}</p>}
+      {error && <p className="admin-notice error">{error}<button type="button" onClick={() => setError("")}><X aria-hidden="true" size={14} /></button></p>}
+
+      {activeTab === "overview" && (
+        <>
+          <div className="admin-metric-grid">
+            {adminMetricDefinitions.map((metric) => {
+              const Icon = metric.icon;
+              return <article key={metric.key}><span><Icon aria-hidden="true" size={17} /></span><small>{metric.label}</small><strong>{Number(data.metrics[metric.key] ?? 0).toLocaleString("ja-JP")}</strong><p>{metric.help}</p></article>;
+            })}
+          </div>
+          <div className="admin-overview-grid">
+            <article className="admin-panel">
+              <div className="admin-panel-heading"><div><h2>最近のユーザー</h2><p>新しい登録とログイン状況</p></div><button type="button" onClick={() => setActiveTab("users")}>すべて見る</button></div>
+              <div className="admin-compact-list">{data.users.slice(0, 6).map((user) => <div key={user.id}><span className="admin-user-initial">{(user.displayName || user.email || "U").slice(0, 1).toUpperCase()}</span><div><strong>{user.displayName || "名称未設定"}</strong><small>{user.email}</small></div><time>{formatAdminDate(user.createdAt)}</time></div>)}</div>
+            </article>
+            <article className="admin-panel">
+              <div className="admin-panel-heading"><div><h2>要対応</h2><p>未完了の問い合わせ</p></div><button type="button" onClick={() => setActiveTab("support")}>すべて見る</button></div>
+              <div className="admin-compact-list contacts">{data.contacts.filter((item) => item.status !== "closed").slice(0, 6).map((item) => <div key={item.id}><span className={`admin-status-dot ${item.status}`} /><div><strong>{item.subject}</strong><small>{item.contact_email || "連絡先なし"}</small></div><time>{formatAdminDate(item.created_at)}</time></div>)}{data.contacts.filter((item) => item.status !== "closed").length === 0 && <p className="admin-empty">未対応の問い合わせはありません。</p>}</div>
+            </article>
+            <article className="admin-panel wide">
+              <div className="admin-panel-heading"><div><h2>最近の契約</h2><p>有料プランの状態</p></div></div>
+              <AdminSubscriptionsTable subscriptions={data.subscriptions.slice(0, 8)} userById={userById} />
+            </article>
+          </div>
+        </>
+      )}
+
+      {activeTab === "users" && <AdminUsersPanel users={data.users} learningStates={data.learningStates} subscriptions={data.subscriptions} />}
+      {activeTab === "support" && <AdminSupportPanel contacts={data.contacts} busyId={busyId} onChangeStatus={changeSupportStatus} />}
+      {activeTab === "announcements" && <AdminAnnouncementsPanel items={data.announcements} busyId={busyId} onPublish={publishAnnouncement} onToggle={toggleAnnouncement} />}
+    </section>
+  );
+}
+
+function AdminSubscriptionsTable({ subscriptions, userById }) {
+  if (subscriptions.length === 0) return <p className="admin-empty">契約データはありません。</p>;
+  return <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ユーザー</th><th>状態</th><th>更新</th><th>次回期間</th></tr></thead><tbody>{subscriptions.map((item) => { const user = userById.get(item.user_id); return <tr key={item.user_id}><td><strong>{user?.displayName || user?.email || item.user_id.slice(0, 8)}</strong><small>{user?.email || item.user_id}</small></td><td><span className={`admin-tag ${item.status}`}>{item.status}</span></td><td>{formatAdminDate(item.updated_at)}</td><td>{formatAdminDate(item.current_period_end, false)}{item.cancel_at_period_end && <small>期間末に終了</small>}</td></tr>; })}</tbody></table></div>;
+}
+
+function AdminUsersPanel({ users, learningStates, subscriptions }) {
+  const learningByUser = new Map(learningStates.map((item) => [item.user_id, item]));
+  const subscriptionByUser = new Map(subscriptions.map((item) => [item.user_id, item]));
+  return (
+    <article className="admin-panel full">
+      <div className="admin-panel-heading"><div><h2>ユーザー</h2><p>最新{users.length}件。認証情報・学習同期・契約状態を横断表示します。</p></div></div>
+      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>ユーザー</th><th>メール確認</th><th>学習同期</th><th>プラン</th><th>登録</th><th>最終ログイン</th></tr></thead><tbody>{users.map((user) => { const learning = learningByUser.get(user.id); const subscription = subscriptionByUser.get(user.id); return <tr key={user.id}><td><strong>{user.displayName || "名称未設定"}</strong><small>{user.email}</small></td><td><span className={`admin-tag ${user.emailConfirmed ? "active" : "pending"}`}>{user.emailConfirmed ? "確認済み" : "未確認"}</span></td><td>{learning ? formatAdminDate(learning.updated_at) : "未同期"}</td><td><span className={`admin-tag ${subscription?.status ?? "free"}`}>{subscription?.status ?? "free"}</span></td><td>{formatAdminDate(user.createdAt)}</td><td>{formatAdminDate(user.lastSignInAt)}</td></tr>; })}</tbody></table></div>
+    </article>
+  );
+}
+
+function AdminSupportPanel({ contacts, busyId, onChangeStatus }) {
+  return (
+    <article className="admin-panel full">
+      <div className="admin-panel-heading"><div><h2>問い合わせ</h2><p>問い合わせと問題報告を受信順に管理します。</p></div></div>
+      <div className="admin-contact-list">{contacts.map((item) => <section key={item.id}><header><div><span className={`admin-tag ${item.status}`}>{item.status === "open" ? "未対応" : item.status === "reviewing" ? "対応中" : "完了"}</span><strong>{item.subject}</strong></div><time>{formatAdminDate(item.created_at)}</time></header><p>{item.message}</p><footer><span>{item.contact_email || "連絡先なし"}{item.question_id ? ` · 問題 ${item.question_id}` : ""}</span><select aria-label={`${item.subject}の対応状態`} value={item.status} disabled={busyId === item.id} onChange={(event) => onChangeStatus(item.id, event.target.value)}><option value="open">未対応</option><option value="reviewing">対応中</option><option value="closed">完了</option></select></footer></section>)}{contacts.length === 0 && <p className="admin-empty">問い合わせはありません。</p>}</div>
+    </article>
+  );
+}
+
+function AdminAnnouncementsPanel({ items, busyId, onPublish, onToggle }) {
+  return (
+    <div className="admin-announcement-grid">
+      <form className="admin-panel admin-announcement-form" onSubmit={onPublish}>
+        <div className="admin-panel-heading"><div><h2>新しいお知らせ</h2><p>公開後、今日の学習画面に表示されます。</p></div></div>
+        <label>タイトル<input name="title" required maxLength={120} placeholder="教材追加のお知らせ" /></label>
+        <label>本文<textarea name="body" required maxLength={2000} rows={6} placeholder="ユーザーに伝える内容を入力" /></label>
+        <label>詳細リンク（任意）<input name="linkUrl" placeholder="/ または https://..." /></label>
+        <button className="primary-button" type="submit" disabled={busyId === "announcement-new"}><Megaphone aria-hidden="true" size={16} />{busyId === "announcement-new" ? "公開中" : "サイトに公開"}</button>
+      </form>
+      <article className="admin-panel announcement-history">
+        <div className="admin-panel-heading"><div><h2>公開履歴</h2><p>最新{items.length}件</p></div></div>
+        <div>{items.map((item) => <section key={item.id}><header><span className={`admin-tag ${item.is_active ? "active" : "closed"}`}>{item.is_active ? "公開中" : "非公開"}</span><time>{formatAdminDate(item.published_at)}</time></header><strong>{item.title}</strong><p>{item.body}</p>{item.link_url && <small>{item.link_url}</small>}<button className="secondary-button compact" type="button" disabled={busyId === item.id} onClick={() => onToggle(item)}>{item.is_active ? "非公開にする" : "再公開する"}</button></section>)}{items.length === 0 && <p className="admin-empty">お知らせはありません。</p>}</div>
+      </article>
+    </div>
+  );
+}
+
+function UserAvatar({ user, size = "large" }) {
+  const avatarUrl = getUserAvatarUrl(user);
+  const label = getUserDisplayName(user) || user?.email || "ユーザー";
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUrl]);
+
+  if (avatarUrl && !avatarFailed) {
+    return <img className={`user-avatar ${size}`} src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setAvatarFailed(true)} />;
+  }
+  return <span className={`user-avatar fallback ${size}`} aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>;
+}
+
+function calculateStudyStreak(progress) {
+  const studyDates = new Set((progress.history ?? [])
+    .map((item) => String(item.answeredAt ?? item.date ?? "").slice(0, 10))
+    .filter(Boolean));
+  let cursor = new Date();
+  const today = cursor.toISOString().slice(0, 10);
+  if (!studyDates.has(today)) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (studyDates.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function formatAccountDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
+function AccountView({ user, membership, summary, progress, cloudSync, onOpenBilling, onOpenStats, isAdmin, onOpenAdmin, onReset, onSignOut }) {
+  const [displayName, setDisplayName] = useState(getUserDisplayName(user));
+  const [profileStatus, setProfileStatus] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [mailBusy, setMailBusy] = useState(false);
+  const providers = getLinkedProviders(user);
+  const completedLessons = Object.values(progress.lessonProgress ?? {})
+    .filter((item) => ["understood", "mastered"].includes(item?.status)).length;
+  const streak = calculateStudyStreak(progress);
+  const syncLabel = cloudSync.status === "saving"
+    ? "保存中"
+    : cloudSync.status === "loading"
+      ? "読み込み中"
+      : cloudSync.status === "error"
+        ? "同期エラー"
+        : "同期済み";
+
+  useEffect(() => {
+    setDisplayName(getUserDisplayName(user));
+  }, [user]);
+
+  async function updateProfile(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    setProfileBusy(true);
+    setProfileStatus("");
+    setProfileError("");
+    const { error } = await supabase.auth.updateUser({
+      data: { ...(user.user_metadata ?? {}), display_name: displayName.trim() },
+    });
+    setProfileBusy(false);
+    if (error) {
+      setProfileError("プロフィールを更新できませんでした。時間を置いて再度お試しください。");
+      return;
+    }
+    setProfileStatus("プロフィールを更新しました。");
+  }
+
+  async function sendVerificationEmail() {
+    if (!supabase || !user.email) return;
+    setMailBusy(true);
+    setProfileStatus("");
+    setProfileError("");
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: user.email,
+      options: { emailRedirectTo: getAuthRedirectUrl() },
+    });
+    setMailBusy(false);
+    if (error) setProfileError("確認メールを送信できませんでした。");
+    else setProfileStatus("確認メールを再送しました。");
+  }
+
+  async function sendPasswordReset() {
+    if (!supabase || !user.email) return;
+    setMailBusy(true);
+    setProfileStatus("");
+    setProfileError("");
+    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+      redirectTo: getAuthRedirectUrl(),
+    });
+    setMailBusy(false);
+    if (error) setProfileError("パスワード再設定メールを送信できませんでした。");
+    else setProfileStatus("パスワード再設定メールを送信しました。");
+  }
+
+  return (
+    <section className="account-page" aria-labelledby="account-page-title">
+      <header className="account-hero">
+        <UserAvatar user={user} />
+        <div>
+          <span>MY PAGE</span>
+          <h1 id="account-page-title">{getUserDisplayName(user) || "マイページ"}</h1>
+          <p>{user.email}</p>
+        </div>
+        <span className={membership.premium ? "plan-badge premium" : "plan-badge"}>
+          {membership.premium ? <Crown aria-hidden="true" size={15} /> : <Sparkles aria-hidden="true" size={15} />}
+          {membership.complimentaryAccess ? "全機能アクセス" : membership.premium ? "Mememo Pro" : "無料プラン"}
+        </span>
+      </header>
+
+      <div className="account-stat-grid">
+        <article><strong>{summary.total}</strong><span>回答数</span></article>
+        <article><strong>{summary.rate}%</strong><span>正答率</span></article>
+        <article><strong>{summary.mastered}</strong><span>定着した問題</span></article>
+        <article><strong>{completedLessons}</strong><span>完了教材</span></article>
+        <article><strong>{streak}日</strong><span>連続学習</span></article>
+      </div>
+
+      <div className="account-grid">
+        <article className="account-card profile-card">
+          <div className="account-card-heading">
+            <div><User aria-hidden="true" size={19} /><h2>プロフィール</h2></div>
+            <span>登録日 {formatAccountDate(user.created_at)}</span>
+          </div>
+          <form className="profile-form" onSubmit={updateProfile}>
+            <label>
+              表示名
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={40} placeholder="表示名を入力" />
+            </label>
+            <button className="primary-button compact" type="submit" disabled={profileBusy || !displayName.trim()}>
+              {profileBusy ? "保存中" : "変更を保存"}
+            </button>
+          </form>
+          {profileStatus && <p className="form-status success">{profileStatus}</p>}
+          {profileError && <p className="form-status error">{profileError}</p>}
+        </article>
+
+        <article className="account-card">
+          <div className="account-card-heading"><div><Shield aria-hidden="true" size={19} /><h2>ログインと安全性</h2></div></div>
+          <dl className="account-detail-list">
+            <div><dt>メール</dt><dd>{user.email}</dd></div>
+            <div><dt>メール確認</dt><dd className={user.email_confirmed_at ? "verified" : "unverified"}>{user.email_confirmed_at ? "確認済み" : "未確認"}</dd></div>
+            <div><dt>ログイン方法</dt><dd>{providers.length > 0 ? providers.map((item) => item === "email" ? "メール" : item[0].toUpperCase() + item.slice(1)).join("・") : "メール"}</dd></div>
+            <div><dt>最終ログイン</dt><dd>{formatAccountDate(user.last_sign_in_at)}</dd></div>
+          </dl>
+          <div className="account-button-row">
+            {!user.email_confirmed_at && <button className="secondary-button compact" type="button" onClick={sendVerificationEmail} disabled={mailBusy}>確認メールを再送</button>}
+            <button className="secondary-button compact" type="button" onClick={sendPasswordReset} disabled={mailBusy}>パスワードを変更</button>
+          </div>
+        </article>
+
+        <article className="account-card">
+          <div className="account-card-heading"><div>{cloudSync.status === "error" ? <CloudOff aria-hidden="true" size={19} /> : <Cloud aria-hidden="true" size={19} />}<h2>学習データ同期</h2></div><span className={`sync-state ${cloudSync.status}`}>{syncLabel}</span></div>
+          <p>問題履歴、復習状況、教材の進捗、1日の新規問題数設定をこのアカウントに保存します。</p>
+          {cloudSync.updatedAt && <small>最終同期 {new Date(cloudSync.updatedAt).toLocaleString("ja-JP")}</small>}
+          {cloudSync.error && <p className="form-status error">同期先の設定を確認してください。</p>}
+          <button className="secondary-button compact" type="button" onClick={onOpenStats}>詳しい学習記録を見る</button>
+        </article>
+
+        <article className="account-card">
+          <div className="account-card-heading"><div><CreditCard aria-hidden="true" size={19} /><h2>プラン</h2></div></div>
+          <div className="plan-summary">
+            <strong>{membership.complimentaryAccess ? "全機能アクセス" : membership.premium ? "Mememo Pro" : "無料プラン"}</strong>
+            <p>{membership.complimentaryAccess ? "運営用アカウントとして、すべての問題・模試・詳細記録を利用できます。" : membership.premium ? "すべての問題・模試・詳細記録を利用できます。" : "今日の学習と教材を中心に利用できます。"}</p>
+          </div>
+          {!membership.complimentaryAccess && <button className={membership.premium ? "secondary-button compact" : "primary-button compact"} type="button" onClick={onOpenBilling}>
+            {membership.premium ? "契約を管理" : "Proを見る"}
+          </button>}
+        </article>
+      </div>
+
+      <footer className="account-footer-actions">
+        <div className="account-button-row">
+          <button className="secondary-button compact" type="button" onClick={onSignOut}><LogOut aria-hidden="true" size={16} />ログアウト</button>
+          {isAdmin && <button className="secondary-button compact" type="button" onClick={onOpenAdmin}><LayoutDashboard aria-hidden="true" size={16} />管理画面</button>}
+        </div>
+        <button className="danger-text-button" type="button" onClick={onReset}><RotateCcw aria-hidden="true" size={15} />この端末と同期先の学習履歴をリセット</button>
+      </footer>
+    </section>
+  );
+}
+
+function friendlyAuthError(error) {
+  const message = String(error?.message ?? "").toLowerCase();
+  if (message.includes("unsupported provider") || message.includes("provider is not enabled")) return "このログイン方法は現在利用できません。メールアドレスでログインしてください。";
+  if (message.includes("invalid login credentials")) return "メールアドレスまたはパスワードが正しくありません。";
+  if (message.includes("email not confirmed")) return "メール確認が完了していません。確認メールをご確認ください。";
+  if (message.includes("already registered")) return "このメールアドレスはすでに登録されています。";
+  if (message.includes("password")) return "パスワードは8文字以上で入力してください。";
+  if (message.includes("rate limit")) return "操作が続いたため一時的に制限されています。少し待ってからお試しください。";
+  return "認証処理に失敗しました。入力内容を確認して再度お試しください。";
+}
+
+function AuthDialog({ onClose, initialMode = "signin" }) {
+  const [mode, setMode] = useState(initialMode);
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [oauthProviders, setOauthProviders] = useState([]);
+
+  useEffect(() => setMode(initialMode), [initialMode]);
+  useEffect(() => {
+    let active = true;
+    getEnabledOAuthProviders().then((providers) => {
+      if (active) setOauthProviders(providers);
+    });
+    return () => { active = false; };
+  }, []);
+
+  function changeMode(nextMode) {
+    setMode(nextMode);
+    setStatus("");
+    setError("");
+  }
+
+  async function runAuth(action) {
+    if (!supabase) {
+      setError("Supabase の環境変数が未設定です。");
+      return null;
+    }
+    setSubmitting(true);
+    setStatus("");
+    setError("");
+    try {
+      const result = await action();
+      if (result?.error) throw result.error;
+      return result;
+    } catch (authError) {
+      setError(friendlyAuthError(authError));
+      return null;
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (mode === "signup") {
+      if (password.length < 8) {
+        setError("パスワードは8文字以上で入力してください。");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("確認用パスワードが一致しません。");
+        return;
+      }
+      const result = await runAuth(() => supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: getAuthRedirectUrl(),
+          data: { display_name: displayName.trim() },
+        },
+      }));
+      if (result && !result.data.session) setStatus("確認メールを送信しました。メール内のリンクから登録を完了してください。");
+      return;
+    }
+    if (mode === "magic") {
+      const result = await runAuth(() => supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: getAuthRedirectUrl() },
+      }));
+      if (result) setStatus("ログイン用リンクをメールで送信しました。");
+      return;
+    }
+    if (mode === "forgot") {
+      const result = await runAuth(() => supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: getAuthRedirectUrl(),
+      }));
+      if (result) setStatus("パスワード再設定メールを送信しました。");
+      return;
+    }
+    if (mode === "update-password") {
+      if (password.length < 8 || password !== confirmPassword) {
+        setError(password.length < 8 ? "パスワードは8文字以上で入力してください。" : "確認用パスワードが一致しません。");
+        return;
+      }
+      const result = await runAuth(() => supabase.auth.updateUser({ password }));
+      if (result) setStatus("パスワードを更新しました。この画面を閉じて続けられます。");
+      return;
+    }
+    await runAuth(() => supabase.auth.signInWithPassword({ email, password }));
+  }
+
+  async function signInWithProvider(provider) {
+    await runAuth(() => supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: getAuthRedirectUrl() },
+    }));
+  }
+
+  const title = mode === "signup" ? "アカウント作成" : mode === "forgot" ? "パスワード再設定" : mode === "update-password" ? "新しいパスワード" : "おかえりなさい";
+  const description = mode === "signup"
+    ? "無料で始めて、学習履歴を端末間で引き継げます。"
+    : mode === "forgot"
+      ? "登録したメールアドレスに再設定リンクを送ります。"
+      : mode === "update-password"
+        ? "今後のログインに使う新しいパスワードを設定します。"
+        : "今日の復習と教材の続きから始めましょう。";
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="modal-panel auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="auth-brand"><span className="brand-mark">M</span><strong>Mememo</strong></div>
+        <div className="modal-heading auth-heading">
+          <div><h2 id="auth-title">{title}</h2><p>{description}</p></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="閉じる"><X aria-hidden="true" size={18} /></button>
+        </div>
+
+        {!authConfigReady && <div className="setup-note" role="note"><strong>認証設定が必要です</strong><span>VITE_SUPABASE_URL と VITE_SUPABASE_ANON_KEY を設定してください。</span></div>}
+
+        {! ["forgot", "update-password"].includes(mode) && (
+          <div className="auth-tabs" role="tablist" aria-label="認証方法">
+            <button className={mode !== "signup" ? "active" : ""} type="button" role="tab" onClick={() => changeMode("signin")}>ログイン</button>
+            <button className={mode === "signup" ? "active" : ""} type="button" role="tab" onClick={() => changeMode("signup")}>新規登録</button>
+          </div>
+        )}
+
+        {! ["forgot", "update-password", "magic"].includes(mode) && oauthProviders.length > 0 && (
+          <>
+            <div className="oauth-buttons">
+              {oauthProviders.includes("google") && <button className="oauth-button" type="button" onClick={() => signInWithProvider("google")} disabled={submitting || !authConfigReady}><span>G</span>Google</button>}
+              {oauthProviders.includes("apple") && <button className="oauth-button" type="button" onClick={() => signInWithProvider("apple")} disabled={submitting || !authConfigReady}><span>●</span>Apple</button>}
+            </div>
+            <div className="auth-divider"><span>または</span></div>
+          </>
+        )}
+
+        <form className="auth-form" onSubmit={handleSubmit}>
+          {mode === "signup" && <label>表示名<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" placeholder="学習者名" maxLength={40} required /></label>}
+          {mode !== "update-password" && <label>メールアドレス<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required /></label>}
+          {! ["magic", "forgot"].includes(mode) && <label>パスワード<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8文字以上" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} required /></label>}
+          {["signup", "update-password"].includes(mode) && <label>パスワード（確認）<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required /></label>}
+          <button className="primary-button auth-submit" type="submit" disabled={submitting || !authConfigReady}>
+            {mode === "signup" ? "無料アカウントを作る" : mode === "magic" ? "ログインリンクを送る" : mode === "forgot" ? "再設定メールを送る" : mode === "update-password" ? "パスワードを更新" : "ログイン"}
+            <ChevronRight aria-hidden="true" size={17} />
+          </button>
+        </form>
+
+        {mode === "signin" && <div className="auth-secondary-actions"><button type="button" onClick={() => changeMode("forgot")}>パスワードを忘れた</button><button type="button" onClick={() => changeMode("magic")}><Mail aria-hidden="true" size={14} />メールリンクでログイン</button></div>}
+        {["forgot", "magic", "update-password"].includes(mode) && <div className="auth-secondary-actions single"><button type="button" onClick={() => changeMode("signin")}><ArrowLeft aria-hidden="true" size={14} />ログインに戻る</button></div>}
+        {status && <p className="form-status success">{status}</p>}
+        {error && <p className="form-status error">{error}</p>}
+        <p className="auth-terms">続行すると、<a href="/terms.html" target="_blank" rel="noreferrer">利用規約</a>と<a href="/privacy.html" target="_blank" rel="noreferrer">プライバシーポリシー</a>に同意したものとみなされます。</p>
+      </section>
+    </div>
+  );
+}
+
+function SupportDialog({ request, user, onClose }) {
+  const question = request.question;
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [subject, setSubject] = useState(
+    request.type === "question_report"
+      ? `問題報告: ${question?.examTitle ?? ""} 問${question?.questionNumber ?? ""}`.trim()
+      : "お問い合わせ",
+  );
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setStatus("");
+    setError("");
+    try {
+      await submitSupportMessage({
+        type: request.type,
+        subject,
+        message,
+        email,
+        user,
+        question,
+      });
+      setStatus("送信しました。確認後に対応します。");
+      setMessage("");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "送信に失敗しました。");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="modal-panel support-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="support-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-heading">
+          <div>
+            <h2 id="support-title">{request.type === "question_report" ? "この問題を報告" : "お問い合わせ"}</h2>
+            <p>{request.type === "question_report" ? "問題IDと試験情報を添付して送信します。" : "ご意見・不具合・収録内容について送信できます。"}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="閉じる">
+            <X aria-hidden="true" size={18} />
+          </button>
+        </div>
+
+        {!authConfigReady && (
+          <div className="setup-note" role="note">
+            <strong>問い合わせ保存先が未設定です</strong>
+            <span>Supabase の環境変数と `support_messages` テーブルを設定してください。</span>
+          </div>
+        )}
+
+        {question && (
+          <div className="report-context">
+            <span>{question.packLabel}</span>
+            {question.examTitle && <span>{question.examTitle}</span>}
+            <span>問{question.questionNumber ?? "-"}</span>
+            <code>{question.id}</code>
+          </div>
+        )}
+
+        <form className="support-form" onSubmit={handleSubmit}>
+          <label>
+            返信先メールアドレス
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+            />
+          </label>
+          <label>
+            件名
+            <input
+              type="text"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            内容
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              rows={7}
+              placeholder={request.type === "question_report" ? "誤字、選択肢、解説、画像表示など、気づいた内容を書いてください。" : "お問い合わせ内容を書いてください。"}
+              required
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={submitting || !authConfigReady}>
+            <MessageSquare aria-hidden="true" size={17} />
+            送信
+          </button>
+        </form>
+
+        {status && <p className="form-status success">{status}</p>}
+        {error && <p className="form-status error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
+function ShortcutHelpDialog({ onClose }) {
+  const shortcuts = [
+    { key: "1-8", action: "選択肢を選ぶ" },
+    { key: "N", action: "次の問題へ進む" },
+    { key: "P", action: "前の問題へ戻る" },
+    { key: "/", action: "ショートカット一覧を開く/閉じる" },
+    { key: "Esc", action: "この一覧を閉じる" },
+  ];
+
+  return (
+    <div className="shortcut-help-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="shortcut-help-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcut-help-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="shortcut-help-heading">
+          <Keyboard aria-hidden="true" size={20} />
+          <h2 id="shortcut-help-title">ショートカット</h2>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="ショートカット一覧を閉じる">
+            <X aria-hidden="true" size={18} />
+          </button>
+        </div>
+        <div className="shortcut-help-list">
+          {shortcuts.map((shortcut) => (
+            <div className="shortcut-help-row" key={shortcut.key}>
+              <kbd>{shortcut.key}</kbd>
+              <span>{shortcut.action}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OfficerQuestionNavigator({ quiz, onJump, mode = "mock" }) {
   const groups = buildOfficerSelectionGroups(quiz.questions, quiz.selections);
   if (groups.length === 0) return null;
+  const answeredLabel = mode === "practice" ? "演習済み" : "回答済み";
+  const headingNote = mode === "practice" ? "区分別の演習状況" : "区分別の回答状況";
+  const requiredLabel = mode === "practice" ? "目安" : "必答";
 
   return (
     <aside className="officer-question-nav" aria-label="幹部候補生の問題選択">
       <div className="officer-nav-heading">
         <strong>問題選択</strong>
-        <span>区分別の回答状況</span>
+        <span>{headingNote}</span>
       </div>
       <div className="officer-nav-legend" aria-label="表示凡例">
         <span><i className="legend-current" />表示中</span>
-        <span><i className="legend-answered" />回答済み</span>
+        <span><i className="legend-answered" />{answeredLabel}</span>
         <span><i className="legend-unavailable" />表示不可</span>
       </div>
       <div className="officer-nav-groups">
@@ -2000,7 +4217,7 @@ function OfficerQuestionNavigator({ quiz, onJump }) {
                   {group.subtitle && <span>{group.subtitle}</span>}
                 </div>
                 <div className={group.rule?.kind === "required" ? "officer-rule required" : "officer-rule"}>
-                  <b>{group.rule?.label ?? "区分"}</b>
+                  <b>{mode === "practice" && group.rule?.kind === "required" ? requiredLabel : (group.rule?.label ?? "区分")}</b>
                   <span>{statusLabel}</span>
                 </div>
               </div>
@@ -2460,67 +4677,81 @@ function renderCaretSuperscripts(text, keyPrefix) {
 }
 
 function DeckMarketplaceView({ packs, enabledPackSet, onToggleDeck, onPracticeDeck }) {
+  const groups = [
+    {
+      id: "bookkeeping",
+      eyebrow: "資格試験",
+      title: "日商簿記",
+      description: "2級・3級を個別に、または同時に学習できます。",
+      packIds: new Set(bookkeepingPackIds),
+    },
+    {
+      id: "officer",
+      eyebrow: "採用試験",
+      title: "一般幹部候補生等",
+      description: "防衛省・自衛隊が公開している一般教養・専門択一をまとめて学習します。",
+      packIds: new Set(["officer-candidate"]),
+    },
+  ];
+
   return (
     <section className="market-view">
       <div className="view-heading">
         <div>
-          <h2>デッキマーケット</h2>
-          <p>学習に使うデッキを追加して、自分用のデッキ一覧を作れます。</p>
+          <h2>学習セット管理</h2>
+          <p>入口は分けていますが、ここでは簿記と一般幹部候補生等を同時に学習対象へ追加できます。</p>
         </div>
       </div>
 
-      <div className="market-grid">
-        {packs.map((pack) => {
-          const enrolled = isVisiblePackEnabled(pack, enabledPackSet);
-          const memberPackIds = pack.memberPackIds ?? [pack.id];
-          const canRemove = enrolled && enabledPackSet.size > memberPackIds.length;
-          const actionLabel = enrolled ? canRemove ? "学習中から外す" : "最後のデッキ" : "学習に追加";
-          return (
-            <article className={enrolled ? "deck-card enrolled" : "deck-card"} key={pack.id} style={{ "--deck-accent": pack.accent }}>
-              <div className="deck-card-top">
-                <span className="deck-symbol"><PackIcon packId={pack.id} /></span>
-                <span className={enrolled ? "deck-status enrolled" : "deck-status"}>{enrolled ? "学習中" : "未追加"}</span>
-              </div>
-              <div>
-                <h3>{pack.title}</h3>
-                <p>{pack.description}</p>
-              </div>
-              <dl className="deck-metrics">
-                <div>
-                  <dt>問題</dt>
-                  <dd>{pack.questionCount}</dd>
-                </div>
-                <div>
-                  <dt>演習</dt>
-                  <dd>{pack.total}</dd>
-                </div>
-                <div>
-                  <dt>正答率</dt>
-                  <dd>{pack.rate}%</dd>
-                </div>
-              </dl>
-              <div className="deck-actions">
-                <button
-                  className={enrolled ? "secondary-button compact" : "primary-button compact"}
-                  type="button"
-                  onClick={() => onToggleDeck(pack.id)}
-                  disabled={enrolled && !canRemove}
-                >
-                  {enrolled ? <Check aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />}
-                  {actionLabel}
-                </button>
-                <button
-                  className="secondary-button compact"
-                  type="button"
-                  onClick={() => onPracticeDeck(pack.id)}
-                  disabled={!enrolled}
-                >
-                  このデッキで演習
-                </button>
-              </div>
-            </article>
-          );
-        })}
+      <div className="market-groups">
+        {groups.map((group) => (
+          <section className="market-group" key={group.id} aria-labelledby={`market-group-${group.id}`}>
+            <div className="market-group-heading">
+              <span>{group.eyebrow}</span>
+              <h3 id={`market-group-${group.id}`}>{group.title}</h3>
+              <p>{group.description}</p>
+            </div>
+            <div className="market-grid">
+              {packs.filter((pack) => group.packIds.has(pack.id)).map((pack) => {
+                const enrolled = isVisiblePackEnabled(pack, enabledPackSet);
+                const memberPackIds = pack.memberPackIds ?? [pack.id];
+                const canRemove = enrolled && enabledPackSet.size > memberPackIds.length;
+                const actionLabel = enrolled ? canRemove ? "演習対象から外す" : "演習対象" : "演習対象に追加";
+                return (
+                  <article className={enrolled ? "deck-card enrolled" : "deck-card"} key={pack.id} style={{ "--deck-accent": pack.accent }}>
+                    <div className="deck-card-top">
+                      <span className="deck-symbol"><PackIcon packId={pack.id} /></span>
+                      <span className={enrolled ? "deck-status enrolled" : "deck-status"}>{enrolled ? "演習対象" : "未選択"}</span>
+                    </div>
+                    <div>
+                      <h3>{pack.title}</h3>
+                      <p>{pack.description}</p>
+                    </div>
+                    <dl className="deck-metrics">
+                      <div><dt>問題</dt><dd>{pack.questionCount}</dd></div>
+                      <div><dt>演習</dt><dd>{pack.total}</dd></div>
+                      <div><dt>正答率</dt><dd>{pack.rate}%</dd></div>
+                    </dl>
+                    <div className="deck-actions">
+                      <button
+                        className={enrolled ? "secondary-button compact" : "primary-button compact"}
+                        type="button"
+                        onClick={() => onToggleDeck(pack.id)}
+                        disabled={enrolled && !canRemove}
+                      >
+                        {enrolled ? <Check aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />}
+                        {actionLabel}
+                      </button>
+                      <button className="secondary-button compact" type="button" onClick={() => onPracticeDeck(pack.id)} disabled={!enrolled}>
+                        このセットで演習
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </section>
   );
@@ -2529,31 +4760,31 @@ function DeckMarketplaceView({ packs, enabledPackSet, onToggleDeck, onPracticeDe
 function ReviewView({ candidates, summary, onStartReview, onPracticeQuestion }) {
   const topCandidates = candidates.slice(0, 20);
   const wrongCount = candidates.filter((item) => (item.attempt?.wrong ?? 0) > 0).length;
-  const lowAccuracyCount = candidates.filter((item) => item.accuracy !== null && item.accuracy < 70).length;
+  const overdueCount = candidates.filter((item) => item.dueLabel?.includes("遅れ")).length;
 
   return (
     <section className="review-view">
       <div className="view-heading">
         <div>
           <h2>復習</h2>
-          <p>ミスと低正答率の問題を優先して解き直せます。</p>
+          <p>実際に間違えた問題から、今日の復習期限に来ているものを解き直せます。</p>
         </div>
         <button className="primary-button" type="button" onClick={() => onStartReview(topCandidates)} disabled={topCandidates.length === 0}>
           <Target aria-hidden="true" size={17} />
-          復習を開始
+          今日の復習を開始
         </button>
       </div>
 
       <div className="metric-grid">
-        <MetricCard icon={Target} label="復習候補" value={`${candidates.length}問`} />
+        <MetricCard icon={Target} label="今日の復習" value={`${candidates.length}問`} />
         <MetricCard icon={X} label="ミスあり" value={`${wrongCount}問`} />
-        <MetricCard icon={BarChart3} label="低正答率" value={`${lowAccuracyCount}問`} />
+        <MetricCard icon={Clock} label="期限超過" value={`${overdueCount}問`} />
       </div>
 
       <section className="table-panel review-summary-panel">
-        <h3>復習キュー</h3>
+        <h3>今日の復習キュー</h3>
         {topCandidates.length === 0 ? (
-          <p className="empty-text">まだ復習候補がありません。演習で間違えた問題や正答率の低い問題がここに表示されます。</p>
+          <p className="empty-text">今日の復習問題はありません。演習で間違えた問題はここに入り、正解するたびに次回の復習間隔が長くなります。</p>
         ) : (
           <div className="review-list">
             {topCandidates.map((item, index) => (
@@ -2574,7 +4805,7 @@ function ReviewView({ candidates, summary, onStartReview, onPracticeQuestion }) 
                 </div>
                 <div className="review-score">
                   <strong>{item.accuracy === null ? "記録" : `${item.accuracy}%`}</strong>
-                  <small>{item.attempt?.total ?? 0}回演習</small>
+                  <small>{item.attempt?.total ?? 0}回 / Lv.{item.reviewLevel}</small>
                 </div>
                 <div className="row-actions">
                   <button type="button" onClick={() => onPracticeQuestion(item.question)}>1問復習</button>

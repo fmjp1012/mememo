@@ -3,6 +3,22 @@ import Foundation
 enum LearningData {
     static let packs: [LearningPack] = [
         LearningPack(
+            id: "bookkeeping-2",
+            label: "日商簿記2級",
+            title: "日商簿記2級 商業簿記・工業簿記",
+            description: "2026年度適用の出題区分を参照したオリジナル問題。",
+            exam: "228問 / 四肢択一 / 解説あり",
+            systemImage: "function"
+        ),
+        LearningPack(
+            id: "bookkeeping-3",
+            label: "日商簿記3級",
+            title: "日商簿記3級 商業簿記",
+            description: "2026年度適用の出題区分を参照したオリジナル問題。",
+            exam: "126問 / 四肢択一 / 解説あり",
+            systemImage: "sum"
+        ),
+        LearningPack(
             id: "itpass",
             label: "ITパスポート試験",
             title: "ITパスポート公式公開問題",
@@ -52,6 +68,8 @@ enum LearningData {
 
     private static func loadQuestions() -> [QuizQuestion] {
         [
+            "bookkeeping/level2",
+            "bookkeeping/level3",
             "itpass",
             "basic-info",
             "applied-info",
