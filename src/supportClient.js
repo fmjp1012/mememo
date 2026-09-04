@@ -5,12 +5,14 @@ export async function submitSupportMessage({ type, subject, message, email, user
     throw new Error("問い合わせ機能の設定が未完了です。");
   }
 
+  const { data, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+
   const payload = {
     type,
     subject,
     message,
     contact_email: email || user?.email || null,
-    user_id: user?.id ?? null,
     question_id: question?.id ?? null,
     question_pack_id: question?.packId ?? null,
     question_exam_id: question?.examId ?? null,
@@ -20,6 +22,16 @@ export async function submitSupportMessage({ type, subject, message, email, user
     user_agent: window.navigator.userAgent,
   };
 
-  const { error } = await supabase.from("support_messages").insert(payload);
-  if (error) throw error;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const accessToken = data.session?.access_token;
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const response = await fetch("/api/support", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || "問い合わせの送信に失敗しました。");
+  }
 }

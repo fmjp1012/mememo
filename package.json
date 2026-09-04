@@ -9,6 +9,7 @@
     "dev:compare": "npm run dev:pipeline",
     "build:pipeline": "vite build --config apps/pipeline-compare/vite.config.js",
     "build": "vite build",
+    "test:worker": "node --test worker/*.test.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",

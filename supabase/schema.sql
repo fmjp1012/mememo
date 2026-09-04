@@ -18,14 +18,38 @@ create table if not exists public.support_messages (
   status text not null default 'open' check (status in ('open', 'reviewing', 'closed'))
 );
 
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'support_messages_subject_length') then
+    alter table public.support_messages add constraint support_messages_subject_length
+      check (char_length(subject) between 1 and 160) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'support_messages_message_length') then
+    alter table public.support_messages add constraint support_messages_message_length
+      check (char_length(message) between 1 and 4000) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'support_messages_contact_email_length') then
+    alter table public.support_messages add constraint support_messages_contact_email_length
+      check (contact_email is null or char_length(contact_email) <= 254) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'support_messages_question_prompt_length') then
+    alter table public.support_messages add constraint support_messages_question_prompt_length
+      check (question_prompt is null or char_length(question_prompt) <= 2000) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'support_messages_page_url_length') then
+    alter table public.support_messages add constraint support_messages_page_url_length
+      check (page_url is null or char_length(page_url) <= 1000) not valid;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'support_messages_user_agent_length') then
+    alter table public.support_messages add constraint support_messages_user_agent_length
+      check (user_agent is null or char_length(user_agent) <= 500) not valid;
+  end if;
+end $$;
+
 alter table public.support_messages enable row level security;
 
 drop policy if exists "Anyone can create support messages" on public.support_messages;
-create policy "Anyone can create support messages"
-  on public.support_messages
-  for insert
-  to anon, authenticated
-  with check (user_id is null or user_id = auth.uid());
+revoke insert on public.support_messages from anon, authenticated;
 
 drop policy if exists "Users can read own support messages" on public.support_messages;
 create policy "Users can read own support messages"

@@ -43,6 +43,11 @@ function runtimeConfigResponse(env) {
 async function handleApi(request, env, url) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204 });
 
+  if (request.method === "POST" && url.pathname === "/api/support") {
+    assertSameOrigin(request, env);
+    return submitSupportMessage(request, env);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/admin/session") {
     return adminSession(request, env);
   }
@@ -83,6 +88,92 @@ async function handleApi(request, env, url) {
     return handleStripeWebhook(request, env);
   }
   return json({ error: "Not found" }, 404);
+}
+
+const SUPPORT_LIMITS = Object.freeze({
+  subject: 160,
+  message: 4000,
+  contact_email: 254,
+  question_id: 160,
+  question_pack_id: 160,
+  question_exam_id: 160,
+  question_prompt: 2000,
+  page_url: 1000,
+  user_agent: 500,
+});
+
+async function submitSupportMessage(request, env) {
+  const contentLength = Number(request.headers.get("Content-Length") ?? 0);
+  if (contentLength > 16 * 1024) throw new HttpError(413, "問い合わせ内容が大きすぎます。");
+  const rawBody = await request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > 16 * 1024) {
+    throw new HttpError(413, "問い合わせ内容が大きすぎます。");
+  }
+
+  let input;
+  try {
+    input = JSON.parse(rawBody);
+  } catch {
+    throw new HttpError(400, "問い合わせ内容が不正です。");
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new HttpError(422, "問い合わせ内容が不正です。");
+  }
+
+  const token = bearerToken(request);
+  const user = token ? await authenticateUser(token, env) : null;
+  const actorKey = user?.id || request.headers.get("CF-Connecting-IP");
+  if (!actorKey || !env.SUPPORT_RATE_LIMITER?.limit) {
+    throw new HttpError(503, "問い合わせ機能を一時的に利用できません。");
+  }
+  const { success } = await env.SUPPORT_RATE_LIMITER.limit({ key: `support:${actorKey}` });
+  if (!success) throw new HttpError(429, "送信回数が多すぎます。時間をおいてください。");
+
+  const type = input.type === "contact" || input.type === "question_report" ? input.type : null;
+  const requiredString = (name) => {
+    const value = typeof input[name] === "string" ? input[name].trim() : "";
+    if (!value || value.length > SUPPORT_LIMITS[name]) {
+      throw new HttpError(422, "問い合わせ内容が不正です。");
+    }
+    return value;
+  };
+  const optionalString = (name) => {
+    if (input[name] == null || input[name] === "") return null;
+    const value = typeof input[name] === "string" ? input[name].trim() : "";
+    if (!value || value.length > SUPPORT_LIMITS[name]) {
+      throw new HttpError(422, "問い合わせ内容が不正です。");
+    }
+    return value;
+  };
+  if (!type) throw new HttpError(422, "問い合わせ種別が不正です。");
+
+  const questionNumber = input.question_number == null
+    ? null
+    : Number.isInteger(input.question_number) && input.question_number >= 0 && input.question_number <= 10000
+      ? input.question_number
+      : undefined;
+  if (questionNumber === undefined) throw new HttpError(422, "問題番号が不正です。");
+
+  const payload = {
+    type,
+    subject: requiredString("subject"),
+    message: requiredString("message"),
+    contact_email: user?.email || optionalString("contact_email") || null,
+    user_id: user?.id ?? null,
+    question_id: optionalString("question_id"),
+    question_pack_id: optionalString("question_pack_id"),
+    question_exam_id: optionalString("question_exam_id"),
+    question_number: questionNumber,
+    question_prompt: optionalString("question_prompt"),
+    page_url: optionalString("page_url"),
+    user_agent: optionalString("user_agent"),
+  };
+  await serviceRest(env, "/rest/v1/support_messages", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify(payload),
+  });
+  return json({ ok: true }, 201);
 }
 
 async function adminSession(request, env) {
